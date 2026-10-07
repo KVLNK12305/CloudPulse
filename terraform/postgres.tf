@@ -35,6 +35,12 @@ resource "azurerm_postgresql_flexible_server" "cloudpulse" {
 
   public_network_access_enabled = false
 
+  lifecycle {
+    ignore_changes = [
+      administrator_password
+    ]
+  }
+
   tags = {
     Project = "cloudpulse"
     Purpose = "application-database"
