@@ -35,12 +35,29 @@ resource "azurerm_subnet" "worker" {
 }
 
 resource "azurerm_subnet" "data" {
-  name                              = "snet-data"
-  resource_group_name               = azurerm_resource_group.cloudpulse.name
-  virtual_network_name              = azurerm_virtual_network.cloudpulse.name
-  address_prefixes                  = ["10.50.4.0/24"]
-  default_outbound_access_enabled   = false
+  name                 = "snet-data"
+  resource_group_name  = azurerm_resource_group.cloudpulse.name
+  virtual_network_name = azurerm_virtual_network.cloudpulse.name
+  address_prefixes     = ["10.50.4.0/24"]
+
   private_endpoint_network_policies = "Disabled"
+  default_outbound_access_enabled   = false
+
+  service_endpoints = [
+    "Microsoft.Storage",
+  ]
+
+  delegation {
+    name = "postgresql-flexible-server"
+
+    service_delegation {
+      name = "Microsoft.DBforPostgreSQL/flexibleServers"
+
+      actions = [
+        "Microsoft.Network/virtualNetworks/subnets/join/action",
+      ]
+    }
+  }
 }
 
 resource "azurerm_subnet_network_security_group_association" "edge" {
