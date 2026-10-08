@@ -5,6 +5,8 @@ resource "azurerm_container_app_environment" "cloudpulse" {
 
   log_analytics_workspace_id = azurerm_log_analytics_workspace.cloudpulse.id
 
+  infrastructure_subnet_id = azurerm_subnet.container_apps.id
+
   workload_profile {
     name                  = "Consumption"
     workload_profile_type = "Consumption"
@@ -35,12 +37,67 @@ resource "azurerm_container_app" "detection_worker" {
     identity = azurerm_user_assigned_identity.cloudpulse.id
   }
 
+  secret {
+    name  = "postgres-password"
+    value = var.postgres_admin_password
+  }
+
   template {
     container {
       name   = "detection-worker"
-      image  = "${azurerm_container_registry.cloudpulse.login_server}/detection-worker:v1"
+      image  = "${azurerm_container_registry.cloudpulse.login_server}/detection-worker:v2"
       cpu    = 0.25
       memory = "0.5Gi"
+
+      env {
+        name  = "LOG_ANALYTICS_WORKSPACE_ID"
+        value = azurerm_log_analytics_workspace.cloudpulse.workspace_id
+      }
+
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = azurerm_user_assigned_identity.cloudpulse.client_id
+      }
+
+      env {
+        name  = "POSTGRES_HOST"
+        value = azurerm_postgresql_flexible_server.cloudpulse.fqdn
+      }
+
+      env {
+        name  = "POSTGRES_PORT"
+        value = "5432"
+      }
+
+      env {
+        name  = "POSTGRES_DB"
+        value = "cloudpulse"
+      }
+
+      env {
+        name  = "POSTGRES_USER"
+        value = azurerm_postgresql_flexible_server.cloudpulse.administrator_login
+      }
+
+      env {
+        name        = "POSTGRES_PASSWORD"
+        secret_name = "postgres-password"
+      }
+
+      env {
+        name  = "POSTGRES_SSLMODE"
+        value = "require"
+      }
+
+      env {
+        name  = "ENVIRONMENT"
+        value = "production"
+      }
+
+      env {
+        name  = "LOOKBACK_MINUTES"
+        value = "60"
+      }
     }
 
     min_replicas = 1

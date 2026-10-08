@@ -125,7 +125,7 @@ class PostgresDatabase(DatabaseRepository):
         ON CONFLICT (finding_id) DO NOTHING
         RETURNING id;
         """
-        evidence_json = json.dumps(finding.evidence.model_dump())
+        evidence_json = json.dumps(finding.evidence.model_dump(), default=str)
 
         with self._get_connection() as conn:
             with conn.cursor() as cur:
@@ -282,13 +282,13 @@ class PostgresDatabase(DatabaseRepository):
                         incident.title,
                         incident.severity.value,
                         incident.status.value,
-                        json.dumps(incident.resource.model_dump()),
-                        json.dumps(incident.identity.model_dump()),
-                        json.dumps(incident.findings),
-                        json.dumps(incident.timeline),
-                        json.dumps(incident.cost_impact) if incident.cost_impact else None,
-                        json.dumps(incident.ai_analysis) if incident.ai_analysis else None,
-                        json.dumps(incident.remediation) if incident.remediation else None,
+                        json.dumps(incident.resource.model_dump(), default=str),
+                        json.dumps(incident.identity.model_dump(), default=str),
+                        json.dumps(incident.findings, default=str),
+                        json.dumps(incident.timeline, default=str),
+                        json.dumps(incident.cost_impact, default=str) if incident.cost_impact else None,
+                        json.dumps(incident.ai_analysis, default=str) if incident.ai_analysis else None,
+                        json.dumps(incident.remediation, default=str) if incident.remediation else None,
                         incident.created_at,
                         incident.updated_at,
                     ),

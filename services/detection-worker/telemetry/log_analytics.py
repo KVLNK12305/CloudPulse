@@ -83,7 +83,10 @@ class LogAnalyticsClient:
             for table in response.tables:
                 columns = [col for col in table.columns]
                 for row in table.rows:
-                    record = {col: val for col, val in zip(columns, row)}
+                    record = {
+                        col: (val.isoformat() if hasattr(val, "isoformat") else val)
+                        for col, val in zip(columns, row)
+                    }
                     results.append(record)
 
             logger.info("Successfully fetched %d records from Log Analytics", len(results))

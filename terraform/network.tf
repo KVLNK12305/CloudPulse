@@ -60,6 +60,27 @@ resource "azurerm_subnet" "data" {
   }
 }
 
+resource "azurerm_subnet" "container_apps" {
+  name                 = "snet-container-apps"
+  resource_group_name  = azurerm_resource_group.cloudpulse.name
+  virtual_network_name = azurerm_virtual_network.cloudpulse.name
+  address_prefixes     = ["10.50.8.0/27"]
+
+  private_endpoint_network_policies = "Disabled"
+
+  delegation {
+    name = "container-apps-environment"
+
+    service_delegation {
+      name = "Microsoft.App/environments"
+
+      actions = [
+        "Microsoft.Network/virtualNetworks/subnets/join/action",
+      ]
+    }
+  }
+}
+
 resource "azurerm_subnet_network_security_group_association" "edge" {
   subnet_id                 = azurerm_subnet.edge.id
   network_security_group_id = "/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkSecurityGroups/sg-edge"
