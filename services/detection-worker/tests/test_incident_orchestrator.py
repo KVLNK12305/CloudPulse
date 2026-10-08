@@ -77,3 +77,53 @@ def test_orchestrator_correlates_subsequent_findings_and_upgrades_severity(mock_
     assert fid1 in inc2.findings
     assert fid2 in inc2.findings
     assert len(inc2.timeline) == 2
+
+
+def test_orchestrator_escalates_to_critical_on_upe_and_soa(mock_db):
+    orchestrator = IncidentOrchestrator(db_repo=mock_db)
+
+    # 1. First event: UNEXPECTED_PUBLIC_EXPOSURE (HIGH)
+    fid1 = generate_deterministic_finding_id("evt-upe-1", "/sub/vm-victim")
+    finding1 = Finding(
+        finding_id=fid1,
+        finding_type="UNEXPECTED_PUBLIC_EXPOSURE",
+        severity=SeverityLevel.HIGH,
+        timestamp="2026-10-08T10:00:00Z",
+        resource=ResourceInfo(id="/sub/vm-victim", type="Microsoft.Compute/virtualMachines", name="vm-victim", resource_group="rg-prod"),
+        identity=IdentityInfo(caller="operator@cloudpulse.io"),
+        evidence=EvidenceInfo(
+            operation="MICROSOFT.NETWORK/NETWORKSECURITYGROUPS/SECURITYRULES/WRITE",
+            activity_log_event_id="evt-upe-1",
+            destination_port="22",
+            exposure_type="MANAGEMENT_PORT",
+        ),
+        confidence=0.95,
+    )
+    inc1 = orchestrator.process_finding(finding1)
+    assert inc1.severity == SeverityLevel.HIGH
+
+    # 2. Second event: SUSPICIOUS_OUTBOUND_ACTIVITY (MEDIUM)
+    fid2 = generate_deterministic_finding_id("evt-soa-1", "/sub/vm-victim")
+    finding2 = Finding(
+        finding_id=fid2,
+        finding_type="SUSPICIOUS_OUTBOUND_ACTIVITY",
+        severity=SeverityLevel.MEDIUM,
+        timestamp="2026-10-08T10:05:00Z",
+        resource=ResourceInfo(id="/sub/vm-victim", type="Microsoft.Compute/virtualMachines", name="vm-victim", resource_group="rg-prod"),
+        identity=IdentityInfo(caller="operator@cloudpulse.io"),
+        evidence=EvidenceInfo(
+            operation="FLOW_LOG",
+            activity_log_event_id="evt-soa-1",
+            destination_port="4444",
+            anomaly_type="OUTBOUND_EGRESS",
+        ),
+        confidence=0.88,
+    )
+    inc2 = orchestrator.process_finding(finding2)
+
+    # Multi-detector escalation should set severity to CRITICAL
+    assert inc2.incident_id == inc1.incident_id
+    assert inc2.severity == SeverityLevel.CRITICAL
+    assert fid1 in inc2.findings
+    assert fid2 in inc2.findings
+    assert len(inc2.timeline) == 2

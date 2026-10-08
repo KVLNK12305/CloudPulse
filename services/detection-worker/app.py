@@ -6,8 +6,11 @@ from config import config
 from database.postgres import PostgresDatabase, InMemoryDatabase, DatabaseRepository
 from detectors.resource_creation import ResourceCreationDetector
 from detectors.unexpected_public_exposure import UnexpectedPublicExposureDetector
+from detectors.suspicious_outbound_activity import SuspiciousOutboundActivityDetector
+from models.network_flow import WorkloadBaseline
 from services.detection_service import DetectionService
 from telemetry.log_analytics import LogAnalyticsClient, LogAnalyticsQueryError
+from telemetry.network_flow import NetworkFlowAdapter, InMemoryBaselineStore
 from telemetry.resource_graph import ResourceGraphClient, ResourceGraphQueryError
 
 logging.basicConfig(
@@ -90,6 +93,7 @@ def create_app(
             "detectors": [
                 ResourceCreationDetector.DETECTION_ID,
                 UnexpectedPublicExposureDetector.DETECTION_ID,
+                SuspiciousOutboundActivityDetector.DETECTION_ID,
             ],
             "storage": "postgres" if isinstance(repository, PostgresDatabase) else "in_memory",
         })
@@ -165,6 +169,77 @@ def create_app(
         except Exception as ex:
             logger.exception("Unexpected error during UNEXPECTED_PUBLIC_EXPOSURE execution: %s", str(ex))
             return jsonify({"status": "error", "message": str(ex)}), 500
+
+    @app.route("/detect/suspicious-outbound", methods=["POST"])
+    def detect_suspicious_outbound():
+        """
+        Trigger the SUSPICIOUS_OUTBOUND_ACTIVITY detection pipeline.
+        Accepts optional JSON body with:
+          - lookback_minutes: int (default: 60)
+          - events: list of raw flow records / dicts (for testing/mock replay)
+          - baselines: optional dict mapping resource_id -> baseline metrics
+        """
+        data = request.get_json(silent=True) or {}
+        lookback_minutes = data.get("lookback_minutes")
+        raw_events = data.get("events")
+        raw_baselines = data.get("baselines")
+
+        # Parse injected baselines if provided
+        baseline_store = InMemoryBaselineStore()
+        if raw_baselines and isinstance(raw_baselines, dict):
+            for res_id, bl_data in raw_baselines.items():
+                if isinstance(bl_data, dict):
+                    known_ips = set(bl_data.get("known_destination_ips", []))
+                    baseline_store.set_baseline(
+                        res_id,
+                        WorkloadBaseline(
+                            resource_id=res_id,
+                            mean_hourly_bytes=float(bl_data.get("mean_hourly_bytes", 0.0)),
+                            std_hourly_bytes=float(bl_data.get("std_hourly_bytes", 0.0)),
+                            known_destination_ips=known_ips,
+                            historical_hours=int(bl_data.get("historical_hours", 0)),
+                            flow_count=int(bl_data.get("flow_count", 0)),
+                            is_cold_start=bool(bl_data.get("is_cold_start", False)),
+                        ),
+                    )
+
+        flow_adapter = NetworkFlowAdapter(log_client=telemetry_client)
+
+        # If live telemetry query is requested (events is None)
+        if raw_events is None:
+            if not telemetry_client:
+                return jsonify({"status": "error", "message": "LogAnalyticsClient is not configured"}), 503
+
+            # Verify table availability before attempting query
+            if not flow_adapter.check_table_exists(config.WORKSPACE_ID):
+                return jsonify({
+                    "status": "error",
+                    "message": "AzureNetworkAnalytics_CL table is not configured in Log Analytics workspace. Network flow telemetry (NSG/VNet Flow Logs with Traffic Analytics) must first be enabled.",
+                    "dependency": "AzureNetworkAnalytics_CL",
+                }), 503
+
+        try:
+            detector_inst = SuspiciousOutboundActivityDetector(
+                db_repo=repository,
+                baseline_store=baseline_store,
+            )
+            outbound_service = DetectionService(
+                db_repo=repository,
+                log_client=telemetry_client,
+                detector=detector_inst,
+            )
+            result = outbound_service.run_detection(
+                lookback_minutes=lookback_minutes,
+                raw_events=raw_events,
+            )
+            return jsonify(result), 200
+        except LogAnalyticsQueryError as lqe:
+            logger.error("Log Analytics query failed: %s", str(lqe))
+            return jsonify({"status": "error", "message": str(lqe)}), 502
+        except Exception as ex:
+            logger.exception("Unexpected error during SUSPICIOUS_OUTBOUND_ACTIVITY execution: %s", str(ex))
+            return jsonify({"status": "error", "message": str(ex)}), 500
+
 
     @app.route("/topology", methods=["GET"])
     def get_topology():

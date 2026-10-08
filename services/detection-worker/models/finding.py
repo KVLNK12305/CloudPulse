@@ -1,7 +1,7 @@
 import hashlib
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Union
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -27,7 +27,7 @@ class IdentityInfo(BaseModel):
 
 class EvidenceInfo(BaseModel):
     operation: str = Field(..., description="Operation name, e.g. Microsoft.Compute/virtualMachines/write")
-    activity_log_event_id: str = Field(..., description="Unique Azure Activity Log EventDataId")
+    activity_log_event_id: str = Field(..., description="Unique Azure Activity Log EventDataId or Flow Identifier")
     correlation_id: Optional[str] = Field(None, description="Azure Correlation ID")
     subscription_id: Optional[str] = Field(None, description="Azure Subscription ID")
     caller_ip: Optional[str] = Field(None, description="Client IP address initiating the action")
@@ -44,6 +44,18 @@ class EvidenceInfo(BaseModel):
     nsg_rule_name: Optional[str] = Field(None, description="Name of NSG security rule")
     nic_id: Optional[str] = Field(None, description="Resource ID of network interface")
     subnet_id: Optional[str] = Field(None, description="Resource ID of subnet")
+
+    # SUSPICIOUS_OUTBOUND_ACTIVITY contract fields
+    source_ip: Optional[str] = Field(None, description="Source private IP address")
+    destination_ip: Optional[str] = Field(None, description="Destination IP address")
+    bytes_sent: Optional[int] = Field(None, description="Total outbound bytes in observation window")
+    bytes_received: Optional[int] = Field(None, description="Total inbound bytes in observation window")
+    flow_count: Optional[int] = Field(None, description="Number of flow sessions observed")
+    anomaly_type: Optional[str] = Field(None, description="Specific trigger (VOLUME_SPIKE, MINING_PORT, C2_BEACON, SCANNING, SUBNET_VIOLATION, MANAGEMENT_PORT, DATABASE_PORT, NOVEL_DESTINATION)")
+    baseline_bytes: Optional[int] = Field(None, description="Expected baseline hourly bytes")
+    deviation_ratio: Optional[float] = Field(None, description="Calculated R_volume ratio")
+    dest_ip_count: Optional[int] = Field(None, description="Count of unique destination IPs (for scanning detection)")
+    related_finding_ids: Optional[List[str]] = Field(default_factory=list, description="Associated CloudPulse finding IDs")
 
 
 def generate_deterministic_finding_id(activity_log_event_id: str, resource_id: str) -> str:
@@ -75,6 +87,49 @@ def generate_exposure_finding_id(
     return f"F-UPE-{digest}"
 
 
+def generate_outbound_finding_id(
+    resource_id: str,
+    destination_ip: str,
+    destination_port: Union[str, int],
+    anomaly_type: str,
+    epoch_timestamp: Optional[Union[float, int, str]] = None,
+    time_bucket: Optional[int] = None,
+) -> str:
+    """
+    Generate a deterministic finding ID for SUSPICIOUS_OUTBOUND_ACTIVITY.
+    Formula per docs/detection/suspicious-outbound-activity.md Section 11:
+        time_bucket = floor(epoch_timestamp / 14400)
+        seed = resource_id + ":" + destination_ip + ":" + destination_port + ":" + anomaly_type + ":" + time_bucket
+        finding_id = "F-SOA-" + SHA256(seed)[:12].upper()
+    """
+    if time_bucket is None:
+        if epoch_timestamp is None:
+            epoch = datetime.now().timestamp()
+        elif isinstance(epoch_timestamp, (int, float)):
+            epoch = float(epoch_timestamp)
+        elif isinstance(epoch_timestamp, str):
+            try:
+                epoch = float(epoch_timestamp)
+            except ValueError:
+                try:
+                    dt = datetime.fromisoformat(epoch_timestamp.replace("Z", "+00:00"))
+                    epoch = dt.timestamp()
+                except Exception:
+                    epoch = 0.0
+        else:
+            epoch = 0.0
+        time_bucket = int(epoch // 14400)
+
+    cleaned_res = str(resource_id).strip().lower()
+    cleaned_dst_ip = str(destination_ip).strip().lower()
+    cleaned_port = str(destination_port).strip()
+    cleaned_anomaly = str(anomaly_type).strip().upper()
+
+    seed = f"{cleaned_res}:{cleaned_dst_ip}:{cleaned_port}:{cleaned_anomaly}:{time_bucket}"
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12].upper()
+    return f"F-SOA-{digest}"
+
+
 class Finding(BaseModel):
     finding_id: str = Field(..., description="Deterministic unique identifier for the finding")
     finding_type: str = Field("RESOURCE_CREATION", description="Detection contract ID")
@@ -95,6 +150,6 @@ class Finding(BaseModel):
     @field_validator("finding_type")
     @classmethod
     def validate_finding_type(cls, v: str) -> str:
-        if v not in ("RESOURCE_CREATION", "UNEXPECTED_PUBLIC_EXPOSURE"):
+        if v not in ("RESOURCE_CREATION", "UNEXPECTED_PUBLIC_EXPOSURE", "SUSPICIOUS_OUTBOUND_ACTIVITY"):
             raise ValueError(f"Invalid finding_type for this detector: {v}")
         return v

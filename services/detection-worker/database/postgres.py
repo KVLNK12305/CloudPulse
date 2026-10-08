@@ -31,6 +31,10 @@ class DatabaseRepository(ABC):
         pass
 
     @abstractmethod
+    def get_findings_by_resource_id(self, resource_id: str) -> List[Finding]:
+        pass
+
+    @abstractmethod
     def save_incident(self, incident: Incident) -> bool:
         """Saves an incident. Returns True if inserted, False if duplicate."""
         pass
@@ -241,6 +245,49 @@ class PostgresDatabase(DatabaseRepository):
             )
         return findings
 
+    def get_findings_by_resource_id(self, resource_id: str) -> List[Finding]:
+        sql = """
+        SELECT
+            finding_id, finding_type, severity, timestamp,
+            resource_id, resource_type, resource_name, resource_group,
+            principal_id, principal_type, caller,
+            operation, activity_log_event_id, correlation_id,
+            confidence, evidence
+        FROM findings
+        WHERE resource_id = %s
+        ORDER BY timestamp DESC;
+        """
+        findings = []
+        with self._get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (resource_id,))
+                rows = cur.fetchall()
+
+        for row in rows:
+            evidence_data = row[15] if isinstance(row[15], dict) else json.loads(row[15])
+            findings.append(
+                Finding(
+                    finding_id=row[0],
+                    finding_type=row[1],
+                    severity=SeverityLevel(row[2]),
+                    timestamp=str(row[3]),
+                    resource=ResourceInfo(
+                        id=row[4],
+                        type=row[5],
+                        name=row[6],
+                        resource_group=row[7],
+                    ),
+                    identity=IdentityInfo(
+                        principal_id=row[8],
+                        principal_type=row[9],
+                        caller=row[10],
+                    ),
+                    evidence=EvidenceInfo(**evidence_data),
+                    confidence=float(row[14]),
+                )
+            )
+        return findings
+
     def save_incident(self, incident: Incident) -> bool:
         """
         Persists an Incident. If incident_id already exists, updates updated_at and attached findings list.
@@ -417,6 +464,9 @@ class InMemoryDatabase(DatabaseRepository):
 
     def list_findings(self, limit: int = 100) -> List[Finding]:
         return list(self.findings.values())[:limit]
+
+    def get_findings_by_resource_id(self, resource_id: str) -> List[Finding]:
+        return [f for f in self.findings.values() if f.resource.id == resource_id]
 
     def save_incident(self, incident: Incident) -> bool:
         if incident.incident_id in self.incidents:

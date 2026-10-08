@@ -71,7 +71,8 @@ class DetectionService:
 
         # 2. Deterministic Detection
         findings = self._detector.detect(events)
-        logger.info("RESOURCE_CREATION detector generated %d findings", len(findings))
+        det_name = getattr(self._detector, "DETECTION_ID", "DETECTOR")
+        logger.info("%s detector generated %d findings", det_name, len(findings))
 
         # 3. Persistence & Incident Promotion
         persisted_findings_count = 0
