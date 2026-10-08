@@ -5,8 +5,10 @@ from flask import Flask, jsonify, request
 from config import config
 from database.postgres import PostgresDatabase, InMemoryDatabase, DatabaseRepository
 from detectors.resource_creation import ResourceCreationDetector
+from detectors.unexpected_public_exposure import UnexpectedPublicExposureDetector
 from services.detection_service import DetectionService
 from telemetry.log_analytics import LogAnalyticsClient, LogAnalyticsQueryError
+from telemetry.resource_graph import ResourceGraphClient, ResourceGraphQueryError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,6 +20,7 @@ logger = logging.getLogger("cloudpulse.detection_worker")
 def create_app(
     db_repo: Optional[DatabaseRepository] = None,
     log_client: Optional[LogAnalyticsClient] = None,
+    arg_client: Optional[ResourceGraphClient] = None,
 ) -> Flask:
     """
     Application factory for the CloudPulse Detection Worker.
@@ -61,6 +64,16 @@ def create_app(
             logger.warning("Default LogAnalyticsClient initialization deferred: %s", str(e))
             telemetry_client = None
 
+    # Initialize Resource Graph client
+    if arg_client is not None:
+        graph_client = arg_client
+    else:
+        try:
+            graph_client = ResourceGraphClient()
+        except Exception as e:
+            logger.warning("Default ResourceGraphClient initialization deferred: %s", str(e))
+            graph_client = None
+
     detection_service = DetectionService(
         db_repo=repository,
         log_client=telemetry_client,
@@ -74,6 +87,10 @@ def create_app(
             "status": "healthy",
             "environment": config.ENVIRONMENT,
             "detector": ResourceCreationDetector.DETECTION_ID,
+            "detectors": [
+                ResourceCreationDetector.DETECTION_ID,
+                UnexpectedPublicExposureDetector.DETECTION_ID,
+            ],
             "storage": "postgres" if isinstance(repository, PostgresDatabase) else "in_memory",
         })
 
@@ -108,6 +125,71 @@ def create_app(
             return jsonify({"status": "error", "message": str(lqe)}), 502
         except Exception as ex:
             logger.exception("Unexpected error during detection execution: %s", str(ex))
+            return jsonify({"status": "error", "message": str(ex)}), 500
+
+    @app.route("/detect/unexpected-public-exposure", methods=["POST"])
+    def detect_unexpected_public_exposure():
+        """
+        Trigger the UNEXPECTED_PUBLIC_EXPOSURE detection pipeline.
+        Accepts optional JSON body with:
+          - lookback_minutes: int (default: 60)
+          - events: list of raw AzureActivity events (for testing/mock replay)
+          - topology: optional mock/injected topology dictionary
+        """
+        data = request.get_json(silent=True) or {}
+        lookback_minutes = data.get("lookback_minutes")
+        raw_events = data.get("events")
+        injected_topology = data.get("topology")
+
+        try:
+            detector_inst = UnexpectedPublicExposureDetector(
+                arg_client=graph_client,
+                topology=injected_topology,
+            )
+            exposure_service = DetectionService(
+                db_repo=repository,
+                log_client=telemetry_client,
+                detector=detector_inst,
+            )
+            result = exposure_service.run_detection(
+                lookback_minutes=lookback_minutes,
+                raw_events=raw_events,
+            )
+            return jsonify(result), 200
+        except LogAnalyticsQueryError as lqe:
+            logger.error("Log Analytics query failed: %s", str(lqe))
+            return jsonify({"status": "error", "message": str(lqe)}), 502
+        except ResourceGraphQueryError as rge:
+            logger.error("Resource Graph query failed: %s", str(rge))
+            return jsonify({"status": "error", "message": str(rge)}), 502
+        except Exception as ex:
+            logger.exception("Unexpected error during UNEXPECTED_PUBLIC_EXPOSURE execution: %s", str(ex))
+            return jsonify({"status": "error", "message": str(ex)}), 500
+
+    @app.route("/topology", methods=["GET"])
+    def get_topology():
+        """
+        Query and return the live network topology from Azure Resource Graph.
+        Used for verification and diagnosing ARG permissions.
+        """
+        if not graph_client:
+            return jsonify({"status": "error", "message": "ResourceGraphClient is not configured"}), 503
+
+        try:
+            topo = graph_client.get_network_topology()
+            return jsonify({
+                "status": "success",
+                "counts": {
+                    "public_ips": len(topo.get("public_ips", {})),
+                    "nics": len(topo.get("nics", {})),
+                    "nsgs": len(topo.get("nsgs", {})),
+                    "vms": len(topo.get("vms", {})),
+                    "subnets": len(topo.get("subnets", {})),
+                },
+                "topology": topo,
+            }), 200
+        except Exception as ex:
+            logger.exception("Error querying live topology from ARG: %s", str(ex))
             return jsonify({"status": "error", "message": str(ex)}), 500
 
     @app.route("/findings", methods=["GET"])

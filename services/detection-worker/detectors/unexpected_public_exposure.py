@@ -65,6 +65,16 @@ class UnexpectedPublicExposureDetector:
     # Internal Sensitive Subnets
     INTERNAL_SUBNETS: Set[str] = {"snet-app", "snet-data", "snet-worker"}
 
+    # Deterministic Confidence Model (docs/detection/unexpected-public-exposure.md Section 7)
+    # The architectural contract requires that UNEXPECTED_PUBLIC_EXPOSURE Findings are ONLY
+    # created when an end-to-end inbound network path has been verified against current topology.
+    # Hence, all emitted Findings are in the "Fully Correlated State" and receive 0.95.
+    # Lower tiers represent unverified candidate signals that do not emit Findings on their own:
+    CONFIDENCE_FULLY_CORRELATED: float = 0.95   # Live ARG/ARM: Public IP bound to NIC + effective Inbound NSG Allow
+    CONFIDENCE_ACTIVITY_VERIFIED: float = 0.85  # Point-in-time Activity Log Inbound Allow on public NSG
+    CONFIDENCE_DELTA_SIGNAL: float = 0.75       # Point-in-time Activity Log Inbound Allow, unverified NIC binding
+    CONFIDENCE_PARTIAL_SIGNAL: float = 0.60     # Partial network signal (Public IP created, rules uncertain)
+
     def __init__(
         self,
         arg_client: Optional[ResourceGraphClient] = None,
@@ -439,7 +449,7 @@ AzureActivity
                                 caller=event_context.get("caller") if event_context else None,
                             ),
                             evidence=evidence,
-                            confidence=0.95,  # Verified against live topology
+                            confidence=self.CONFIDENCE_FULLY_CORRELATED,  # Fully correlated state
                         )
 
                         findings.append(finding)
