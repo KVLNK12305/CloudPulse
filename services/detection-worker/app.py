@@ -7,8 +7,19 @@ from database.postgres import PostgresDatabase, InMemoryDatabase, DatabaseReposi
 from detectors.resource_creation import ResourceCreationDetector
 from detectors.unexpected_public_exposure import UnexpectedPublicExposureDetector
 from detectors.suspicious_outbound_activity import SuspiciousOutboundActivityDetector
+from models.cost_record import CostRecord
 from models.network_flow import WorkloadBaseline
 from services.detection_service import DetectionService
+from telemetry.cost_baseline import CostBaselineStore, InMemoryCostBaselineStore
+from telemetry.cost_management import (
+    CostManagementClient,
+    CostManagementQueryError,
+    CostManagementAuthenticationError,
+    CostManagementRbacError,
+    CostManagementRateLimitError,
+    CostManagementBadRequestError,
+    CostManagementNotFoundError,
+)
 from telemetry.log_analytics import LogAnalyticsClient, LogAnalyticsQueryError
 from telemetry.network_flow import NetworkFlowAdapter, InMemoryBaselineStore
 from telemetry.resource_graph import ResourceGraphClient, ResourceGraphQueryError
@@ -24,6 +35,8 @@ def create_app(
     db_repo: Optional[DatabaseRepository] = None,
     log_client: Optional[LogAnalyticsClient] = None,
     arg_client: Optional[ResourceGraphClient] = None,
+    cost_client: Optional[CostManagementClient] = None,
+    cost_store: Optional[CostBaselineStore] = None,
 ) -> Flask:
     """
     Application factory for the CloudPulse Detection Worker.
@@ -76,6 +89,19 @@ def create_app(
         except Exception as e:
             logger.warning("Default ResourceGraphClient initialization deferred: %s", str(e))
             graph_client = None
+
+    # Initialize Cost Management client
+    if cost_client is not None:
+        cost_telemetry_client = cost_client
+    else:
+        try:
+            cost_telemetry_client = CostManagementClient()
+        except Exception as e:
+            logger.warning("Default CostManagementClient initialization deferred: %s", str(e))
+            cost_telemetry_client = None
+
+    # Initialize Cost Baseline Store
+    finops_baseline_store = cost_store if cost_store is not None else InMemoryCostBaselineStore()
 
     detection_service = DetectionService(
         db_repo=repository,
@@ -266,6 +292,165 @@ def create_app(
         except Exception as ex:
             logger.exception("Error querying live topology from ARG: %s", str(ex))
             return jsonify({"status": "error", "message": str(ex)}), 500
+
+    @app.route("/finops/cost-query", methods=["POST"])
+    def query_finops_costs():
+        """
+        Query and normalize Azure Cost Management telemetry, compute baselines,
+        and generate CostObservations.
+        Accepts optional JSON body with:
+          - scope: str (e.g. /subscriptions/{id} or /subscriptions/{id}/resourceGroups/{rg})
+          - lookback_days: int (default: 14)
+          - evaluation_date: str (YYYY-MM-DD)
+          - raw_response: dict (mock/replay Azure Cost Management Query API response)
+          - records: list of dicts (pre-normalized CostRecord inputs for testing)
+        """
+        data = request.get_json(silent=True) or {}
+        scope = data.get("scope") or f"/subscriptions/{config.AZURE_SUBSCRIPTION_ID}"
+        lookback_days = int(data.get("lookback_days") or config.COST_LOOKBACK_DAYS)
+        evaluation_date = data.get("evaluation_date")
+        raw_response = data.get("raw_response")
+        pre_formed_records = data.get("records")
+
+        try:
+            ingested_records: List[CostRecord] = []
+
+            if pre_formed_records is not None:
+                for rec_data in pre_formed_records:
+                    if isinstance(rec_data, dict):
+                        ingested_records.append(CostRecord(**rec_data))
+                    elif isinstance(rec_data, CostRecord):
+                        ingested_records.append(rec_data)
+
+            elif raw_response is not None:
+                client = cost_telemetry_client or CostManagementClient()
+                ingested_records = client.normalize_query_response(
+                    raw_response=raw_response,
+                    default_sub_id=config.AZURE_SUBSCRIPTION_ID,
+                )
+
+            else:
+                if not cost_telemetry_client:
+                    return jsonify({
+                        "status": "error",
+                        "message": "CostManagementClient is not configured",
+                    }), 503
+
+                ingested_records = cost_telemetry_client.get_historical_cost(
+                    scope=scope,
+                    lookback_days=lookback_days,
+                    default_sub_id=config.AZURE_SUBSCRIPTION_ID,
+                )
+
+            # Idempotently record costs into baseline store
+            finops_baseline_store.record_costs(ingested_records)
+
+            # Compute observations
+            observations = finops_baseline_store.list_observations(evaluation_date=evaluation_date)
+            unique_workloads = {r.resource_id for r in ingested_records}
+
+            return jsonify({
+                "status": "success",
+                "scope": scope,
+                "records_ingested": len(ingested_records),
+                "unique_workloads": len(unique_workloads),
+                "observations_generated": len(observations),
+                "observations": [obs.model_dump() for obs in observations],
+                "records": [r.model_dump() for r in ingested_records[:50]],
+            }), 200
+
+        except CostManagementRbacError as rbe:
+            logger.error("Cost Management RBAC error on scope %s: %s", scope, str(rbe))
+            return jsonify({
+                "status": "error",
+                "error_type": "RBAC_FORBIDDEN",
+                "message": str(rbe),
+            }), 403
+
+        except CostManagementRateLimitError as rle:
+            logger.error("Cost Management rate limit exceeded on scope %s: %s", scope, str(rle))
+            return jsonify({
+                "status": "error",
+                "error_type": "RATE_LIMIT_EXCEEDED",
+                "message": str(rle),
+            }), 429
+
+        except CostManagementBadRequestError as bre:
+            logger.error("Cost Management bad request on scope %s: %s", scope, str(bre))
+            return jsonify({
+                "status": "error",
+                "error_type": "BAD_REQUEST",
+                "message": str(bre),
+            }), 400
+
+        except CostManagementNotFoundError as nfe:
+            logger.error("Cost Management scope not found: %s: %s", scope, str(nfe))
+            return jsonify({
+                "status": "error",
+                "error_type": "NOT_FOUND",
+                "message": str(nfe),
+            }), 404
+
+        except CostManagementAuthenticationError as cae:
+            logger.error("Cost Management authentication failure: %s", str(cae))
+            return jsonify({
+                "status": "error",
+                "error_type": "AUTHENTICATION_FAILED",
+                "message": str(cae),
+            }), 401
+
+        except CostManagementQueryError as cqe:
+            logger.error("Cost Management query failed: %s", str(cqe))
+            return jsonify({
+                "status": "error",
+                "message": str(cqe),
+            }), 502
+
+        except Exception as ex:
+            logger.exception("Unexpected error in /finops/cost-query: %s", str(ex))
+            return jsonify({"status": "error", "message": str(ex)}), 500
+
+    @app.route("/finops/baseline", methods=["GET"])
+    def get_finops_baseline():
+        """
+        Query current FinOps baseline observations from the baseline store.
+        """
+        evaluation_date = request.args.get("evaluation_date")
+        resource_id = request.args.get("resource_id")
+        cost_category = request.args.get("cost_category")
+
+        if resource_id and cost_category:
+            obs = finops_baseline_store.get_observation(
+                resource_id=resource_id,
+                cost_category=cost_category,
+                evaluation_date=evaluation_date,
+            )
+            if not obs:
+                return jsonify({"error": "Observation not found for specified resource and category"}), 404
+            return jsonify(obs.model_dump()), 200
+
+        observations = finops_baseline_store.list_observations(evaluation_date=evaluation_date)
+        return jsonify({
+            "count": len(observations),
+            "observations": [o.model_dump() for o in observations],
+        }), 200
+
+    @app.route("/finops/rbac-check", methods=["GET"])
+    def check_finops_rbac():
+        """
+        Validate Cost Management Reader RBAC permissions on the specified scope.
+        """
+        scope = request.args.get("scope") or f"/subscriptions/{config.AZURE_SUBSCRIPTION_ID}"
+        if not cost_telemetry_client:
+            return jsonify({"status": "error", "message": "CostManagementClient is not configured"}), 503
+
+        is_valid = cost_telemetry_client.validate_rbac(scope=scope)
+        return jsonify({
+            "scope": scope,
+            "rbac_valid": is_valid,
+            "required_role": "Cost Management Reader",
+            "role_definition_id": "72fafb9e-0641-4937-9268-a42baaa0c913",
+        }), 200 if is_valid else 403
 
     @app.route("/findings", methods=["GET"])
     def get_findings():

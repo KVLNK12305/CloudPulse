@@ -22,5 +22,10 @@ class Config:
     # Query default lookback window (in minutes)
     LOOKBACK_MINUTES: int = int(os.getenv("LOOKBACK_MINUTES", "60"))
 
+    # FinOps Cost Management Telemetry
+    COST_LOOKBACK_DAYS: int = int(os.getenv("COST_LOOKBACK_DAYS", "14"))
+    COST_QUERY_API_VERSION: str = os.getenv("COST_QUERY_API_VERSION", "2023-11-01")
+    AZURE_SUBSCRIPTION_ID: str = os.getenv("AZURE_SUBSCRIPTION_ID", "90b900ea-4273-4b40-a343-091aecfe2911")
+
 
 config = Config()
