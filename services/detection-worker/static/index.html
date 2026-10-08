@@ -1498,10 +1498,49 @@
               })
             }],
             topology: {
+              public_ips: {
+                "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourcegroups/cloudpulse-rg/providers/microsoft.network/publicipaddresses/pip-worker-01": {
+                  id: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/publicIPAddresses/pip-worker-01",
+                  name: "pip-worker-01",
+                  ip_address: "20.198.51.10",
+                  ip_configuration_id: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkInterfaces/nic-worker-01/ipConfigurations/ipconfig1",
+                  resource_group: "cloudpulse-rg",
+                  subscription_id: "90b900ea-4273-4b40-a343-091aecfe2911"
+                }
+              },
+              nics: {
+                "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourcegroups/cloudpulse-rg/providers/microsoft.network/networkinterfaces/nic-worker-01": {
+                  id: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkInterfaces/nic-worker-01",
+                  name: "nic-worker-01",
+                  vm_id: victimResId,
+                  nsg_id: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkSecurityGroups/nsg-worker",
+                  ip_configurations: [{
+                    id: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkInterfaces/nic-worker-01/ipConfigurations/ipconfig1",
+                    name: "ipconfig1",
+                    public_ip_id: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/publicIPAddresses/pip-worker-01",
+                    subnet_id: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/virtualNetworks/vnet-cloudpulse/subnets/snet-worker"
+                  }],
+                  resource_group: "cloudpulse-rg",
+                  subscription_id: "90b900ea-4273-4b40-a343-091aecfe2911"
+                }
+              },
               nsgs: {
-                "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkSecurityGroups/nsg-worker": {
+                "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourcegroups/cloudpulse-rg/providers/microsoft.network/networksecuritygroups/nsg-worker": {
                   id: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkSecurityGroups/nsg-worker",
-                  rules: [{ name: "Allow-SSH-Internet", access: "Allow", direction: "Inbound", protocol: "Tcp", destination_port: "22", source_address: "*" }]
+                  name: "nsg-worker",
+                  resource_group: "cloudpulse-rg",
+                  subscription_id: "90b900ea-4273-4b40-a343-091aecfe2911",
+                  rules: [{
+                    name: "Allow-SSH-Internet",
+                    properties: {
+                      access: "Allow",
+                      direction: "Inbound",
+                      protocol: "Tcp",
+                      destinationPortRange: "22",
+                      sourceAddressPrefix: "0.0.0.0/0",
+                      priority: 100
+                    }
+                  }]
                 }
               },
               vms: {
@@ -1509,13 +1548,7 @@
                   id: victimResId,
                   name: "vm-worker-01",
                   resourceGroup: "cloudpulse-rg",
-                  networkInterfaces: ["/subscriptions/.../nics/nic-worker-01"]
-                }
-              },
-              nics: {
-                "/subscriptions/.../nics/nic-worker-01": {
-                  publicIp: "20.198.51.10",
-                  nsgId: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkSecurityGroups/nsg-worker"
+                  networkInterfaces: ["/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkInterfaces/nic-worker-01"]
                 }
               }
             }
@@ -1575,8 +1608,20 @@
           })
         });
 
+        // 5. Trigger AI Triage
+        const activeResp = await fetch('/api/incidents');
+        const activeData = await activeResp.json();
+        if (activeData.incidents && activeData.incidents.length > 0) {
+          const incId = activeData.incidents[0].incident_id;
+          await fetch(`/api/incidents/${incId}/ai-triage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force_refresh: true })
+          });
+        }
+
         await loadDashboardData();
-        alert("Demo attack & egress scenario successfully ingested and correlated!");
+        alert("Demo scenario successfully ingested, correlated, and triaged by AI!");
       } catch (err) {
         console.error("Demo seed error:", err);
         alert("Failed to seed demo scenario: " + err.message);
