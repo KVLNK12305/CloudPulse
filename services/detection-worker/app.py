@@ -7,9 +7,11 @@ from database.postgres import PostgresDatabase, InMemoryDatabase, DatabaseReposi
 from detectors.resource_creation import ResourceCreationDetector
 from detectors.unexpected_public_exposure import UnexpectedPublicExposureDetector
 from detectors.suspicious_outbound_activity import SuspiciousOutboundActivityDetector
-from models.cost_record import CostRecord
+from detectors.cost_anomaly import CostAnomalyDetector
+from models.cost_record import CostRecord, CostObservation
 from models.network_flow import WorkloadBaseline
 from services.detection_service import DetectionService
+from services.incident_orchestrator import IncidentOrchestrator
 from telemetry.cost_baseline import CostBaselineStore, InMemoryCostBaselineStore
 from telemetry.cost_management import (
     CostManagementClient,
@@ -120,6 +122,7 @@ def create_app(
                 ResourceCreationDetector.DETECTION_ID,
                 UnexpectedPublicExposureDetector.DETECTION_ID,
                 SuspiciousOutboundActivityDetector.DETECTION_ID,
+                CostAnomalyDetector.DETECTION_ID,
             ],
             "storage": "postgres" if isinstance(repository, PostgresDatabase) else "in_memory",
         })
@@ -451,6 +454,98 @@ def create_app(
             "required_role": "Cost Management Reader",
             "role_definition_id": "72fafb9e-0641-4937-9268-a42baaa0c913",
         }), 200 if is_valid else 403
+
+    @app.route("/detect/cost-anomaly", methods=["POST"])
+    def detect_cost_anomaly():
+        """
+        Trigger the COST_ANOMALY detection pipeline.
+        Accepts optional JSON body with:
+          - observations: list of CostObservation dicts (for testing/mock replay)
+          - records: list of CostRecord dicts
+          - raw_response: mock Cost Management Query API response
+          - evaluation_date: str (YYYY-MM-DD)
+          - scope: str
+          - lookback_days: int
+        """
+        data = request.get_json(silent=True) or {}
+        injected_observations = data.get("observations")
+        injected_records = data.get("records") or data.get("raw_records")
+        raw_response = data.get("raw_response")
+        evaluation_date = data.get("evaluation_date")
+        scope = data.get("scope") or f"/subscriptions/{config.AZURE_SUBSCRIPTION_ID}"
+        lookback_days = int(data.get("lookback_days") or config.COST_LOOKBACK_DAYS)
+
+        try:
+            obs_to_evaluate: List[CostObservation] = []
+
+            if injected_observations is not None:
+                for item in injected_observations:
+                    if isinstance(item, CostObservation):
+                        obs_to_evaluate.append(item)
+                    elif isinstance(item, dict):
+                        obs_to_evaluate.append(CostObservation(**item))
+
+            elif injected_records is not None or raw_response is not None:
+                records: List[CostRecord] = []
+                if injected_records is not None:
+                    for rec in injected_records:
+                        if isinstance(rec, CostRecord):
+                            records.append(rec)
+                        elif isinstance(rec, dict):
+                            records.append(CostRecord(**rec))
+                elif raw_response is not None:
+                    client = cost_telemetry_client or CostManagementClient()
+                    records = client.normalize_query_response(
+                        raw_response=raw_response,
+                        default_sub_id=config.AZURE_SUBSCRIPTION_ID,
+                    )
+
+                finops_baseline_store.record_costs(records)
+                obs_to_evaluate = finops_baseline_store.list_observations(evaluation_date=evaluation_date)
+
+            else:
+                # Live execution: pull historical cost from Cost Management if available
+                if cost_telemetry_client:
+                    live_records = cost_telemetry_client.get_historical_cost(
+                        scope=scope,
+                        lookback_days=lookback_days,
+                        default_sub_id=config.AZURE_SUBSCRIPTION_ID,
+                    )
+                    finops_baseline_store.record_costs(live_records)
+
+                obs_to_evaluate = finops_baseline_store.list_observations(evaluation_date=evaluation_date)
+
+            detector_inst = CostAnomalyDetector(baseline_store=finops_baseline_store)
+            findings = detector_inst.detect(observations=obs_to_evaluate, evaluation_date=evaluation_date)
+
+            # Persist Findings and correlate into Incidents
+            orchestrator = IncidentOrchestrator(repository)
+            persisted_count = 0
+            incidents_map = {}
+
+            for finding in findings:
+                is_new = repository.save_finding(finding)
+                if is_new:
+                    persisted_count += 1
+
+                incident = orchestrator.process_finding(finding)
+                incidents_map[incident.incident_id] = incident
+
+            incidents_list = list(incidents_map.values())
+
+            return jsonify({
+                "status": "success",
+                "observations_evaluated": len(obs_to_evaluate),
+                "findings_detected": len(findings),
+                "new_findings_persisted": persisted_count,
+                "incidents_created_or_updated": len(incidents_list),
+                "findings": [f.model_dump() for f in findings],
+                "incidents": [inc.model_dump() for inc in incidents_list],
+            }), 200
+
+        except Exception as ex:
+            logger.exception("Unexpected error during COST_ANOMALY execution: %s", str(ex))
+            return jsonify({"status": "error", "message": str(ex)}), 500
 
     @app.route("/findings", methods=["GET"])
     def get_findings():

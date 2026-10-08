@@ -57,6 +57,22 @@ class EvidenceInfo(BaseModel):
     dest_ip_count: Optional[int] = Field(None, description="Count of unique destination IPs (for scanning detection)")
     related_finding_ids: Optional[List[str]] = Field(default_factory=list, description="Associated CloudPulse finding IDs")
 
+    # COST_ANOMALY contract fields
+    actual_cost: Optional[float] = Field(None, description="Actual billed cost on evaluation date")
+    baseline_cost: Optional[float] = Field(None, description="Expected baseline daily cost")
+    deviation_absolute: Optional[float] = Field(None, description="Absolute cost delta (current - baseline)")
+    percentage_increase: Optional[float] = Field(None, description="Percentage cost increase vs baseline")
+    std_dev: Optional[float] = Field(None, description="Standard deviation over baseline window")
+    currency: Optional[str] = Field(None, description="Billing currency code, e.g. USD")
+    cost_category: Optional[str] = Field(None, description="Deterministic cost category: Compute, Storage, Network/Egress, etc.")
+    service_name: Optional[str] = Field(None, description="Azure service name")
+    meter_name: Optional[str] = Field(None, description="Azure meter name")
+    evaluation_date: Optional[str] = Field(None, description="UTC evaluation date: YYYY-MM-DD")
+    sample_days: Optional[int] = Field(None, description="Active baseline observation days")
+    is_cold_start: Optional[bool] = Field(None, description="True if workload has insufficient baseline history (< 3 days)")
+    high_volatility: Optional[bool] = Field(None, description="True if baseline CV > 0.50")
+    is_provisional: Optional[bool] = Field(None, description="True if cost data is subject to retroactive billing reconciliation")
+
 
 def generate_deterministic_finding_id(activity_log_event_id: str, resource_id: str) -> str:
     """
@@ -130,6 +146,26 @@ def generate_outbound_finding_id(
     return f"F-SOA-{digest}"
 
 
+def generate_cost_anomaly_finding_id(
+    resource_id: str,
+    cost_category: str,
+    evaluation_date: str,
+) -> str:
+    """
+    Generate a deterministic finding ID for COST_ANOMALY.
+    Formula per docs/detection/cost-anomaly.md Section 9:
+        seed = resource_id + ":" + cost_category + ":" + evaluation_date + ":" + "COST_ANOMALY"
+        finding_id = "F-COST-" + SHA256(seed)[:12].upper()
+    """
+    cleaned_res = str(resource_id).strip().lower()
+    cleaned_cat = str(cost_category).strip().upper()
+    cleaned_date = str(evaluation_date).strip()
+
+    seed = f"{cleaned_res}:{cleaned_cat}:{cleaned_date}:COST_ANOMALY"
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12].upper()
+    return f"F-COST-{digest}"
+
+
 class Finding(BaseModel):
     finding_id: str = Field(..., description="Deterministic unique identifier for the finding")
     finding_type: str = Field("RESOURCE_CREATION", description="Detection contract ID")
@@ -150,6 +186,6 @@ class Finding(BaseModel):
     @field_validator("finding_type")
     @classmethod
     def validate_finding_type(cls, v: str) -> str:
-        if v not in ("RESOURCE_CREATION", "UNEXPECTED_PUBLIC_EXPOSURE", "SUSPICIOUS_OUTBOUND_ACTIVITY"):
+        if v not in ("RESOURCE_CREATION", "UNEXPECTED_PUBLIC_EXPOSURE", "SUSPICIOUS_OUTBOUND_ACTIVITY", "COST_ANOMALY"):
             raise ValueError(f"Invalid finding_type for this detector: {v}")
         return v

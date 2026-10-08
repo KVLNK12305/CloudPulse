@@ -36,6 +36,8 @@ class IncidentOrchestrator:
             timeline_event = "UNEXPECTED_PUBLIC_EXPOSURE_DETECTED"
         elif finding.finding_type == "SUSPICIOUS_OUTBOUND_ACTIVITY":
             timeline_event = "SUSPICIOUS_OUTBOUND_ACTIVITY_DETECTED"
+        elif finding.finding_type == "COST_ANOMALY":
+            timeline_event = "COST_ANOMALY_DETECTED"
         else:
             timeline_event = "RESOURCE_CREATION_DETECTED"
 
@@ -81,6 +83,11 @@ class IncidentOrchestrator:
         elif finding.finding_type == "SUSPICIOUS_OUTBOUND_ACTIVITY":
             soa_label = finding.evidence.anomaly_type or "Outbound Egress"
             title = f"Suspicious Outbound Activity: {finding.resource.name} ({soa_label})"
+        elif finding.finding_type == "COST_ANOMALY":
+            cat_label = finding.evidence.cost_category or "FinOps"
+            delta = finding.evidence.deviation_absolute or 0.0
+            pct = finding.evidence.percentage_increase or 0.0
+            title = f"Cost Anomaly: {finding.resource.name} ({cat_label}) - +${delta:.2f} (+{pct:.0f}%)"
         else:
             title = f"New Resource Created: {finding.resource.name} ({finding.resource.type.split('/')[-1]})"
         logger.info(

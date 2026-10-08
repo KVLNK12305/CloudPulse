@@ -1,4 +1,14 @@
-from .finding import Finding, ResourceInfo, IdentityInfo, EvidenceInfo, SeverityLevel
+from .finding import (
+    Finding,
+    ResourceInfo,
+    IdentityInfo,
+    EvidenceInfo,
+    SeverityLevel,
+    generate_deterministic_finding_id,
+    generate_exposure_finding_id,
+    generate_outbound_finding_id,
+    generate_cost_anomaly_finding_id,
+)
 from .incident import Incident, IncidentStatus
 from .network_flow import NetworkFlowEvent, WorkloadBaseline
 from .cost_record import (
@@ -16,6 +26,10 @@ __all__ = [
     "IdentityInfo",
     "EvidenceInfo",
     "SeverityLevel",
+    "generate_deterministic_finding_id",
+    "generate_exposure_finding_id",
+    "generate_outbound_finding_id",
+    "generate_cost_anomaly_finding_id",
     "Incident",
     "IncidentStatus",
     "NetworkFlowEvent",
