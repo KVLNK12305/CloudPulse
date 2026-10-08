@@ -3,11 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CloudPulse — Autonomous FinOps & Threat Surface Triage Engine</title>
-  <meta name="description" content="Autonomous Azure FinOps & Threat Surface Triage Engine: Bridging Deterministic Security Detection, Cost Anomalies, and AI Triage.">
+  <title>CloudPulse — Azure Estate, SecOps & FinOps Operator Console</title>
+  <meta name="description" content="Autonomous Azure Estate, FinOps & Threat Surface Operator Console: Bridging Real Azure Resource Graph Inventory, Runtime Metrics, Actual Billing, and AI-Driven Remediation.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --bg-base: #0a0d14;
@@ -24,6 +24,7 @@
       --accent-cyan-glow: rgba(6, 182, 212, 0.2);
       --accent-blue: #3b82f6;
       --accent-purple: #8b5cf6;
+      --accent-emerald: #10b981;
       
       --sev-critical: #f43f5e;
       --sev-critical-bg: rgba(244, 63, 94, 0.12);
@@ -33,11 +34,8 @@
       --sev-medium-bg: rgba(234, 179, 8, 0.12);
       --sev-low: #38bdf8;
       --sev-low-bg: rgba(56, 189, 248, 0.12);
-      
-      --status-open: #f43f5e;
-      --status-investigating: #eab308;
-      --status-resolved: #10b981;
-      --status-closed: #64748b;
+      --sev-clean: #10b981;
+      --sev-clean-bg: rgba(16, 185, 129, 0.12);
       
       --radius-sm: 6px;
       --radius-md: 10px;
@@ -60,8 +58,8 @@
     /* Top Navigation Bar */
     .topbar {
       height: 64px;
-      background: rgba(17, 22, 34, 0.85);
-      backdrop-filter: blur(12px);
+      background: rgba(17, 22, 34, 0.90);
+      backdrop-filter: blur(14px);
       border-bottom: 1px solid var(--border-subtle);
       display: flex;
       align-items: center;
@@ -69,7 +67,13 @@
       padding: 0 28px;
       position: sticky;
       top: 0;
-      z-index: 50;
+      z-index: 100;
+    }
+
+    .brand-group {
+      display: flex;
+      align-items: center;
+      gap: 16px;
     }
 
     .brand {
@@ -90,25 +94,70 @@
       justify-content: center;
       box-shadow: 0 0 16px var(--accent-cyan-glow);
     }
-
     .brand-icon svg { width: 18px; height: 18px; fill: white; }
     .brand-title { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em; }
-    .brand-badge {
-      font-size: 0.68rem;
-      text-transform: uppercase;
-      background: rgba(6, 182, 212, 0.15);
-      color: var(--accent-cyan);
-      border: 1px solid rgba(6, 182, 212, 0.3);
-      padding: 2px 7px;
-      border-radius: 999px;
+
+    /* Nav Tabs */
+    .nav-tabs {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(0, 0, 0, 0.35);
+      padding: 4px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-subtle);
+      margin-left: 12px;
+    }
+
+    .nav-tab {
+      padding: 6px 14px;
+      font-size: 0.78rem;
       font-weight: 600;
-      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      cursor: pointer;
+      border-radius: 4px;
+      border: none;
+      background: transparent;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: inherit;
+    }
+    .nav-tab:hover {
+      color: var(--text-main);
+      background: rgba(255, 255, 255, 0.05);
+    }
+    .nav-tab.active {
+      background: var(--bg-surface-elevated);
+      color: var(--accent-cyan);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+
+    .azure-connection-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.70rem;
+      font-family: var(--font-mono);
+      background: rgba(16, 185, 129, 0.12);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      padding: 3px 9px;
+      border-radius: 999px;
+    }
+    .azure-connection-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
     }
 
     .topbar-actions {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
     }
 
     .btn {
@@ -117,21 +166,13 @@
       gap: 8px;
       padding: 7px 14px;
       border-radius: var(--radius-sm);
-      font-size: 0.82rem;
+      font-size: 0.80rem;
       font-weight: 600;
       cursor: pointer;
       border: 1px solid transparent;
       transition: all 0.15s ease;
       font-family: inherit;
     }
-
-    .btn-primary {
-      background: linear-gradient(135deg, #0891b2, #0284c7);
-      color: white;
-      box-shadow: 0 2px 10px rgba(6, 182, 212, 0.25);
-    }
-    .btn-primary:hover { opacity: 0.92; transform: translateY(-1px); }
-
     .btn-secondary {
       background: var(--bg-surface-elevated);
       color: var(--text-muted);
@@ -148,10 +189,20 @@
 
     /* Layout */
     .app-container {
-      max-width: 1600px;
+      max-width: 1680px;
       margin: 0 auto;
       padding: 24px 28px;
     }
+
+    /* Tab Content Pages */
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+      animation: fadeIn 0.2s ease;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
 
     /* KPI Summary Cards Grid */
     .kpi-grid {
@@ -173,7 +224,6 @@
       position: relative;
       overflow: hidden;
     }
-
     .kpi-card::before {
       content: '';
       position: absolute;
@@ -181,17 +231,30 @@
       height: 2px;
       background: transparent;
     }
+    .kpi-card.inventory::before { background: #38bdf8; }
     .kpi-card.critical::before { background: var(--sev-critical); }
     .kpi-card.correlated::before { background: var(--accent-cyan); }
     .kpi-card.financial::before { background: #10b981; }
     .kpi-card.ai::before { background: var(--accent-purple); }
 
     .kpi-label {
-      font-size: 0.74rem;
+      font-size: 0.72rem;
       text-transform: uppercase;
       font-weight: 600;
       letter-spacing: 0.05em;
       color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .kpi-source-tag {
+      font-size: 0.60rem;
+      font-family: var(--font-mono);
+      color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.1);
+      padding: 1px 5px;
+      border-radius: 3px;
+      text-transform: none;
     }
 
     .kpi-value {
@@ -201,25 +264,298 @@
       font-family: var(--font-mono);
       letter-spacing: -0.02em;
     }
+    .kpi-subtext { font-size: 0.72rem; color: var(--text-muted); }
 
-    .kpi-subtext {
-      font-size: 0.72rem;
-      color: var(--text-muted);
+    /* Source Badges */
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 0.65rem;
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-dim);
+    }
+    .source-badge.arg { border-color: rgba(56, 189, 248, 0.3); color: #7dd3fc; background: rgba(56, 189, 248, 0.08); }
+    .source-badge.monitor { border-color: rgba(16, 185, 129, 0.3); color: #6ee7b7; background: rgba(16, 185, 129, 0.08); }
+    .source-badge.cost { border-color: rgba(234, 179, 8, 0.3); color: #fde047; background: rgba(234, 179, 8, 0.08); }
+    .source-badge.cloudpulse { border-color: rgba(139, 92, 246, 0.3); color: #c084fc; background: rgba(139, 92, 246, 0.08); }
+    .source-badge.postgres { border-color: rgba(99, 102, 241, 0.3); color: #a5b4fc; background: rgba(99, 102, 241, 0.08); }
+
+    /* Latency & Info Banners */
+    .notice-banner {
+      background: rgba(234, 179, 8, 0.08);
+      border: 1px solid rgba(234, 179, 8, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 10px 16px;
+      font-size: 0.78rem;
+      color: #fde047;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
     }
 
-    /* Main Content Columns: Master / Detail */
+    /* Architecture Flow Card */
+    .arch-flow-card {
+      background: linear-gradient(135deg, rgba(17, 22, 34, 0.95), rgba(22, 29, 45, 0.95));
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      box-shadow: var(--shadow-card);
+      margin-bottom: 24px;
+    }
+    .arch-flow-title {
+      font-size: 0.82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--accent-cyan);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .arch-flow-steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      position: relative;
+    }
+    .flow-step {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .flow-step-header {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .flow-step-sub {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Table Component */
+    .data-table-container {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: var(--shadow-card);
+    }
+    .table-toolbar {
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: var(--bg-surface-elevated);
+      flex-wrap: wrap;
+    }
+    .toolbar-left, .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .search-input, .filter-select {
+      background: var(--bg-base);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.76rem;
+      font-family: inherit;
+      outline: none;
+    }
+    .search-input:focus, .filter-select:focus { border-color: var(--border-focus); }
+    .search-input { min-width: 240px; }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.78rem;
+      text-align: left;
+    }
+    .data-table th {
+      background: rgba(0, 0, 0, 0.25);
+      padding: 10px 14px;
+      font-weight: 600;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      font-size: 0.68rem;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .data-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border-subtle);
+      vertical-align: middle;
+    }
+    .data-table tbody tr {
+      transition: background 0.15s ease;
+      cursor: pointer;
+    }
+    .data-table tbody tr:hover {
+      background: var(--bg-surface-hover);
+    }
+
+    .badge-sev {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: var(--radius-sm);
+      letter-spacing: 0.04em;
+      display: inline-block;
+    }
+    .badge-sev.CRITICAL { background: var(--sev-critical-bg); color: var(--sev-critical); border: 1px solid rgba(244, 63, 94, 0.3); }
+    .badge-sev.HIGH { background: var(--sev-high-bg); color: var(--sev-high); border: 1px solid rgba(249, 115, 22, 0.3); }
+    .badge-sev.MEDIUM { background: var(--sev-medium-bg); color: var(--sev-medium); border: 1px solid rgba(234, 179, 8, 0.3); }
+    .badge-sev.LOW { background: var(--sev-low-bg); color: var(--sev-low); border: 1px solid rgba(56, 189, 248, 0.3); }
+    .badge-sev.CLEAN { background: var(--sev-clean-bg); color: var(--sev-clean); border: 1px solid rgba(16, 185, 129, 0.3); }
+
+    .badge-status {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+    }
+    .badge-status.OPEN { background: rgba(244, 63, 94, 0.15); color: #fda4af; }
+    .badge-status.INVESTIGATING { background: rgba(234, 179, 8, 0.15); color: #fef08a; }
+    .badge-status.RESOLVED { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+    .badge-status.CLOSED { background: rgba(100, 116, 139, 0.15); color: #94a3b8; }
+    .badge-status.VERIFIED { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; }
+    .badge-status.APPROVED { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-status.EXECUTING, .badge-status.VERIFYING { background: rgba(234, 179, 8, 0.15); color: #fde047; }
+    .badge-status.FAILED { background: rgba(244, 63, 94, 0.15); color: #fda4af; }
+
+    /* Slide-Over Drawer for Deep Resource Detail */
+    .drawer-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(4px);
+      z-index: 200;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    .drawer-overlay.active { display: block; opacity: 1; }
+
+    .drawer-panel {
+      position: fixed;
+      top: 0; right: -720px; bottom: 0;
+      width: 700px;
+      max-width: 95vw;
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border-subtle);
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.7);
+      z-index: 210;
+      transition: right 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .drawer-panel.active { right: 0; }
+
+    .drawer-header {
+      padding: 18px 24px;
+      background: var(--bg-surface-elevated);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .drawer-body {
+      padding: 24px;
+      overflow-y: auto;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .btn-close-drawer {
+      background: transparent;
+      border: none;
+      color: var(--text-dim);
+      font-size: 1.25rem;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .btn-close-drawer:hover { color: var(--text-main); }
+
+    .detail-card {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .detail-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 8px;
+    }
+    .detail-card-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 10px;
+    }
+    .metric-box {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .metric-box-title { font-size: 0.65rem; color: var(--text-dim); text-transform: uppercase; }
+    .metric-box-val { font-size: 1.10rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-main); }
+
+    /* Incident Master / Detail View (Preserved) */
     .main-workspace {
       display: grid;
       grid-template-columns: 440px 1fr;
       gap: 20px;
       align-items: start;
     }
-
     @media (max-width: 1100px) {
       .main-workspace { grid-template-columns: 1fr; }
     }
 
-    /* Incident List Panel (Master) */
     .panel {
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
@@ -227,7 +563,6 @@
       overflow: hidden;
       box-shadow: var(--shadow-card);
     }
-
     .panel-header {
       padding: 14px 18px;
       border-bottom: 1px solid var(--border-subtle);
@@ -236,40 +571,12 @@
       justify-content: space-between;
       background: var(--bg-surface-elevated);
     }
-
-    .panel-title {
-      font-size: 0.88rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .filter-bar {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border-subtle);
-      display: flex;
-      gap: 8px;
-      background: rgba(0,0,0,0.15);
-      flex-wrap: wrap;
-    }
-
-    .filter-select, .search-input {
-      background: var(--bg-surface-elevated);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-main);
-      padding: 6px 10px;
-      border-radius: var(--radius-sm);
-      font-size: 0.75rem;
-      font-family: inherit;
-    }
-    .search-input { flex: 1; }
+    .panel-title { font-size: 0.88rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
 
     .incident-list {
       max-height: calc(100vh - 280px);
       overflow-y: auto;
     }
-
     .incident-item {
       padding: 14px 18px;
       cursor: pointer;
@@ -284,51 +591,7 @@
       background: rgba(6, 182, 212, 0.08);
       border-left: 3px solid var(--accent-cyan);
     }
-
-    .item-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-    }
-
-    .badge-sev {
-      font-size: 0.65rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      padding: 2px 7px;
-      border-radius: var(--radius-sm);
-      letter-spacing: 0.04em;
-    }
-    .badge-sev.CRITICAL { background: var(--sev-critical-bg); color: var(--sev-critical); border: 1px solid rgba(244, 63, 94, 0.3); }
-    .badge-sev.HIGH { background: var(--sev-high-bg); color: var(--sev-high); border: 1px solid rgba(249, 115, 22, 0.3); }
-    .badge-sev.MEDIUM { background: var(--sev-medium-bg); color: var(--sev-medium); border: 1px solid rgba(234, 179, 8, 0.3); }
-    .badge-sev.LOW { background: var(--sev-low-bg); color: var(--sev-low); border: 1px solid rgba(56, 189, 248, 0.3); }
-
-    .badge-status {
-      font-size: 0.65rem;
-      font-weight: 600;
-      padding: 2px 6px;
-      border-radius: 999px;
-      font-family: var(--font-mono);
-      text-transform: uppercase;
-    }
-    .badge-status.OPEN { background: rgba(244, 63, 94, 0.15); color: #fda4af; }
-    .badge-status.INVESTIGATING { background: rgba(234, 179, 8, 0.15); color: #fef08a; }
-    .badge-status.RESOLVED { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
-    .badge-status.CLOSED { background: rgba(100, 116, 139, 0.15); color: #94a3b8; }
-    .badge-status.APPROVED { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.3); }
-    .badge-status.VERIFIED { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; }
-    .badge-status.EXECUTING, .badge-status.VERIFYING { background: rgba(234, 179, 8, 0.15); color: #fde047; border: 1px solid rgba(234, 179, 8, 0.3); }
-    .badge-status.FAILED, .badge-status.PRECONDITION_FAILED, .badge-status.VERIFICATION_FAILED { background: rgba(244, 63, 94, 0.15); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.3); }
-    .badge-status.NEEDS_REVIEW { background: rgba(249, 115, 22, 0.15); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.3); }
-
-    .item-id {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      color: var(--text-dim);
-    }
-
+    .item-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .item-title {
       font-size: 0.82rem;
       font-weight: 600;
@@ -340,7 +603,6 @@
       overflow: hidden;
       line-height: 1.35;
     }
-
     .item-footer {
       display: flex;
       align-items: center;
@@ -348,7 +610,6 @@
       font-size: 0.7rem;
       color: var(--text-dim);
     }
-
     .finops-tag {
       background: rgba(16, 185, 129, 0.1);
       color: #34d399;
@@ -359,13 +620,8 @@
       font-family: var(--font-mono);
     }
 
-    /* Incident Detail View (Detail) */
-    .detail-view {
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-
+    /* Detail View Styles */
+    .detail-view { display: flex; flex-direction: column; gap: 20px; }
     .detail-header-card {
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
@@ -376,21 +632,7 @@
       flex-direction: column;
       gap: 16px;
     }
-
-    .detail-title-row {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-    }
-
-    .detail-heading {
-      font-size: 1.25rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1.3;
-    }
-
+    .detail-heading { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; }
     .detail-meta-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -398,16 +640,11 @@
       padding-top: 12px;
       border-top: 1px solid var(--border-subtle);
     }
-
-    .meta-box {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
+    .meta-box { display: flex; flex-direction: column; gap: 2px; }
     .meta-label { font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
     .meta-val { font-size: 0.8rem; font-family: var(--font-mono); color: var(--text-main); word-break: break-all; }
 
-    /* Security vs FinOps Correlation Card */
+    /* Correlation Card */
     .correlation-card {
       background: linear-gradient(135deg, rgba(17, 22, 34, 0.95), rgba(22, 29, 45, 0.95));
       border: 1px solid rgba(6, 182, 212, 0.3);
@@ -417,15 +654,6 @@
       position: relative;
       overflow: hidden;
     }
-
-    .correlation-card::after {
-      content: '';
-      position: absolute;
-      top: 0; right: 0; width: 140px; height: 140px;
-      background: radial-gradient(circle, rgba(6, 182, 212, 0.15) 0%, transparent 70%);
-      pointer-events: none;
-    }
-
     .correlation-title {
       font-size: 0.88rem;
       font-weight: 700;
@@ -437,13 +665,11 @@
       text-transform: uppercase;
       letter-spacing: 0.04em;
     }
-
     .correlation-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 14px;
     }
-
     .corr-stat {
       background: rgba(0, 0, 0, 0.2);
       border: 1px solid var(--border-subtle);
@@ -454,7 +680,7 @@
     .corr-stat-val { font-size: 1.15rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-main); }
     .corr-stat-val.positive { color: #f43f5e; }
 
-    /* AI Assessment Section (Special Spotlight) */
+    /* AI Card */
     .ai-card {
       background: linear-gradient(135deg, rgba(22, 29, 45, 0.95), rgba(30, 27, 75, 0.4));
       border: 1px solid rgba(139, 92, 246, 0.35);
@@ -464,9 +690,7 @@
       display: flex;
       flex-direction: column;
       gap: 20px;
-      position: relative;
     }
-
     .ai-header {
       display: flex;
       align-items: center;
@@ -474,13 +698,6 @@
       border-bottom: 1px solid rgba(139, 92, 246, 0.2);
       padding-bottom: 14px;
     }
-
-    .ai-badge-group {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
     .ai-pill {
       background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(168, 85, 247, 0.25));
       border: 1px solid rgba(139, 92, 246, 0.4);
@@ -491,15 +708,6 @@
       border-radius: 999px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .ai-block {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
     }
     .ai-block-title {
       font-size: 0.74rem;
@@ -507,19 +715,15 @@
       letter-spacing: 0.05em;
       font-weight: 700;
       color: #a78bfa;
+      margin-bottom: 4px;
     }
-    .ai-block-text {
-      font-size: 0.85rem;
-      color: #e2e8f0;
-      line-height: 1.6;
-    }
+    .ai-block-text { font-size: 0.85rem; color: #e2e8f0; line-height: 1.6; }
 
     .tripartition-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
       gap: 14px;
     }
-
     .tri-box {
       background: rgba(0, 0, 0, 0.25);
       border: 1px solid var(--border-subtle);
@@ -531,20 +735,12 @@
     }
     .tri-box.facts { border-left: 3px solid #38bdf8; }
     .tri-box.inferences { border-left: 3px solid #eab308; }
-    .tri-box.recommendations { border-left: 3px solid #10b981; }
-
-    .tri-list {
-      list-style-type: none;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
+    .tri-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
     .tri-list li {
       font-size: 0.78rem;
       color: #cbd5e1;
       position: relative;
       padding-left: 14px;
-      line-height: 1.45;
     }
     .tri-list li::before {
       content: '•';
@@ -553,13 +749,8 @@
       color: var(--text-dim);
     }
 
-    /* Recommended Actions & Human Approval UX */
-    .actions-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
+    /* Actions List */
+    .actions-list { display: flex; flex-direction: column; gap: 10px; }
     .action-item {
       background: var(--bg-surface-elevated);
       border: 1px solid var(--border-subtle);
@@ -569,30 +760,11 @@
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      transition: border-color 0.15s;
     }
-    .action-item:hover { border-color: rgba(255, 255, 255, 0.15); }
-
-    .action-info {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-    .action-title {
-      font-size: 0.85rem;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
+    .action-info { display: flex; flex-direction: column; gap: 4px; }
+    .action-title { font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 8px; }
     .action-desc { font-size: 0.76rem; color: var(--text-muted); }
-
-    .action-controls {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-shrink: 0;
-    }
+    .action-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
     .btn-approve {
       background: rgba(16, 185, 129, 0.15);
@@ -604,8 +776,6 @@
       font-weight: 600;
       cursor: pointer;
     }
-    .btn-approve:hover { background: rgba(16, 185, 129, 0.25); }
-
     .btn-reject {
       background: rgba(244, 63, 94, 0.15);
       border: 1px solid rgba(244, 63, 94, 0.4);
@@ -616,8 +786,6 @@
       font-weight: 600;
       cursor: pointer;
     }
-    .btn-reject:hover { background: rgba(244, 63, 94, 0.25); }
-
     .btn-execute {
       background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(59, 130, 246, 0.25));
       border: 1px solid rgba(6, 182, 212, 0.6);
@@ -627,22 +795,9 @@
       font-size: 0.74rem;
       font-weight: 700;
       cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.2s ease;
-    }
-    .btn-execute:hover {
-      background: linear-gradient(135deg, rgba(6, 182, 212, 0.35), rgba(59, 130, 246, 0.45));
-      border-color: var(--accent-cyan);
-      box-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
-    }
-    .btn-execute:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
     }
 
-    /* Interactive Timeline */
+    /* Timeline */
     .timeline-card {
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
@@ -650,7 +805,6 @@
       padding: 20px 24px;
       box-shadow: var(--shadow-card);
     }
-
     .timeline-title {
       font-size: 0.88rem;
       font-weight: 700;
@@ -659,7 +813,6 @@
       color: var(--text-muted);
       margin-bottom: 16px;
     }
-
     .timeline-flow {
       position: relative;
       padding-left: 20px;
@@ -674,13 +827,7 @@
       width: 2px;
       background: var(--border-subtle);
     }
-
-    .timeline-node {
-      position: relative;
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
+    .timeline-node { position: relative; display: flex; flex-direction: column; gap: 3px; }
     .timeline-node::before {
       content: '';
       position: absolute;
@@ -688,21 +835,8 @@
       width: 10px; height: 10px;
       border-radius: 50%;
       background: var(--accent-cyan);
-      box-shadow: 0 0 8px var(--accent-cyan-glow);
     }
-    .timeline-node.AI_TRIAGE_PERFORMED::before { background: var(--accent-purple); }
-    .timeline-node.SECURITY_FINOPS_CORRELATED::before { background: #10b981; }
-    .timeline-node.REMEDIATION_APPROVED::before { background: #3b82f6; }
-    .timeline-node.REMEDIATION_EXECUTED::before { background: #06b6d4; }
-    .timeline-node.REMEDIATION_VERIFIED::before { background: #10b981; box-shadow: 0 0 10px rgba(16, 185, 129, 0.6); }
-    .timeline-node.REMEDIATION_FAILED::before,
-    .timeline-node.REMEDIATION_PRECONDITION_FAILED::before { background: #f43f5e; box-shadow: 0 0 8px rgba(244, 63, 94, 0.6); }
-
-    .node-header {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+    .node-header { display: flex; align-items: center; gap: 10px; }
     .node-time { font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-dim); }
     .node-tag {
       font-size: 0.68rem;
@@ -714,21 +848,13 @@
     }
     .node-desc { font-size: 0.8rem; color: var(--text-main); }
 
-    /* Findings Evidence Accordion */
+    /* Findings Grid */
     .findings-card {
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
       border-radius: var(--radius-md);
       padding: 20px 24px;
       box-shadow: var(--shadow-card);
-    }
-    .findings-header {
-      font-size: 0.88rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--text-muted);
-      margin-bottom: 16px;
     }
     .evidence-grid {
       display: grid;
@@ -744,12 +870,6 @@
       flex-direction: column;
       gap: 8px;
     }
-    .evidence-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .evidence-id { font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-cyan); }
     .evidence-body {
       background: rgba(0,0,0,0.3);
       padding: 10px;
@@ -761,14 +881,12 @@
       max-height: 180px;
     }
 
-    /* Modal / Alert Banner */
     .empty-state {
       padding: 60px 20px;
       text-align: center;
       color: var(--text-dim);
       font-size: 0.88rem;
     }
-
     .loader {
       display: inline-block;
       width: 14px;
@@ -785,19 +903,46 @@
 
   <!-- Top Navigation -->
   <header class="topbar">
-    <a href="/dashboard" class="brand">
-      <div class="brand-icon">
-        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-      </div>
-      <div class="brand-title">CloudPulse</div>
-      <span class="brand-badge">SecOps / FinOps</span>
-    </a>
+    <div class="brand-group">
+      <a href="/dashboard" class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div>
+          <div class="brand-title">CloudPulse</div>
+        </div>
+      </a>
 
+      <!-- Primary Navigation Tabs -->
+      <nav class="nav-tabs">
+        <button class="nav-tab active" data-tab="overview" onclick="switchTab('overview')">
+          <span>📊 Overview</span>
+        </button>
+        <button class="nav-tab" data-tab="resources" onclick="switchTab('resources')">
+          <span>☁️ Resources</span>
+          <span class="source-badge arg" style="margin-left: 2px;" id="nav-res-count">0</span>
+        </button>
+        <button class="nav-tab" data-tab="finops" onclick="switchTab('finops')">
+          <span>💰 Cost & FinOps</span>
+        </button>
+        <button class="nav-tab" data-tab="incidents" onclick="switchTab('incidents')">
+          <span>🛡️ Incidents</span>
+          <span class="badge-status OPEN" style="margin-left: 2px;" id="nav-inc-count">0</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Right Actions & Azure Live Connection Pill -->
     <div class="topbar-actions">
-      <button class="btn btn-secondary" id="btn-seed-demo" title="Seed realistic multi-vector attack fixture for live evaluation">
+      <div class="azure-connection-badge" title="Live connection to Azure Resource Manager and Cost Management APIs">
+        <div class="azure-connection-dot"></div>
+        <span id="azure-sub-display">Azure Connected</span>
+      </div>
+
+      <button class="btn btn-secondary" id="btn-seed-demo" title="Seed realistic multi-vector breach scenario fixture for demonstration">
         <span>⚡ Seed Test Scenario</span>
       </button>
-      <button class="btn btn-secondary" id="btn-refresh" title="Reload incident telemetry">
+      <button class="btn btn-secondary" id="btn-refresh" title="Reload live Azure telemetry and database state">
         <span id="refresh-icon">↻</span> Refresh
       </button>
       <div style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);" id="clock-display">UTC --:--:--</div>
@@ -807,83 +952,367 @@
   <!-- Main Container -->
   <main class="app-container">
 
-    <!-- KPI Summary Row -->
-    <section class="kpi-grid">
-      <div class="kpi-card">
-        <span class="kpi-label">Active Incidents</span>
-        <span class="kpi-value" id="kpi-total">0</span>
-        <span class="kpi-subtext">Monitored workloads</span>
-      </div>
-      <div class="kpi-card critical">
-        <span class="kpi-label">Critical / High Severity</span>
-        <span class="kpi-value" id="kpi-critical" style="color: var(--sev-critical);">0</span>
-        <span class="kpi-subtext">Requires urgent triage</span>
-      </div>
-      <div class="kpi-card correlated">
-        <span class="kpi-label">Correlated Incidents</span>
-        <span class="kpi-value" id="kpi-correlated" style="color: var(--accent-cyan);">0</span>
-        <span class="kpi-subtext">Security ↔ FinOps Concurrence</span>
-      </div>
-      <div class="kpi-card financial">
-        <span class="kpi-label">Correlated Cost Overrun</span>
-        <span class="kpi-value" id="kpi-cost" style="color: #34d399;">$0.00</span>
-        <span class="kpi-subtext">Cumulative billed delta</span>
-      </div>
-      <div class="kpi-card ai">
-        <span class="kpi-label">AI Triaged</span>
-        <span class="kpi-value" id="kpi-ai" style="color: #c084fc;">0</span>
-        <span class="kpi-subtext">Autonomous synthesis</span>
-      </div>
-    </section>
+    <!-- TAB 1: OVERVIEW -->
+    <section class="tab-content active" id="tab-overview">
 
-    <!-- Workspace Grid -->
-    <div class="main-workspace">
+      <!-- KPI Summary Row -->
+      <div class="kpi-grid">
+        <div class="kpi-card inventory">
+          <div class="kpi-label">
+            <span>Discovered Resources</span>
+            <span class="kpi-source-tag">Resource Graph</span>
+          </div>
+          <span class="kpi-value" id="ov-resources-count" style="color: #38bdf8;">0</span>
+          <span class="kpi-subtext">Actual provisioned estate</span>
+        </div>
 
-      <!-- Master: Incident List Panel -->
-      <aside class="panel">
-        <div class="panel-header">
-          <div class="panel-title">
-            <span>🛡️ Incident Feed</span>
-            <span class="badge-status OPEN" id="incident-count-badge">0</span>
+        <div class="kpi-card financial">
+          <div class="kpi-label">
+            <span>Actual Billed Cost</span>
+            <span class="kpi-source-tag">Cost Management</span>
+          </div>
+          <span class="kpi-value" id="ov-billed-cost" style="color: #34d399;">₹0.00</span>
+          <span class="kpi-subtext" id="ov-cost-period">14-day evaluation window</span>
+        </div>
+
+        <div class="kpi-card critical">
+          <div class="kpi-label">
+            <span>Active Incidents</span>
+            <span class="kpi-source-tag">CloudPulse SecOps</span>
+          </div>
+          <span class="kpi-value" id="ov-incidents-count" style="color: var(--sev-critical);">0</span>
+          <span class="kpi-subtext" id="ov-crit-count">0 Critical/High priority</span>
+        </div>
+
+        <div class="kpi-card correlated">
+          <div class="kpi-label">
+            <span>SecOps ↔ FinOps Concurrence</span>
+            <span class="kpi-source-tag">Cross-Correlation</span>
+          </div>
+          <span class="kpi-value" id="ov-correlated-count" style="color: var(--accent-cyan);">0</span>
+          <span class="kpi-subtext">Security & Cost confluence</span>
+        </div>
+
+        <div class="kpi-card ai">
+          <div class="kpi-label">
+            <span>AI Triaged</span>
+            <span class="kpi-source-tag">Azure OpenAI</span>
+          </div>
+          <span class="kpi-value" id="ov-ai-count" style="color: #c084fc;">0</span>
+          <span class="kpi-subtext">Autonomous synthesis</span>
+        </div>
+      </div>
+
+      <!-- Architectural Story Pipeline Card -->
+      <div class="arch-flow-card">
+        <div class="arch-flow-title">
+          <span>⚡ Live Telemetry to Controlled Remediation Architecture</span>
+          <span class="source-badge arg">Azure Estate Engine</span>
+        </div>
+        <div class="arch-flow-steps">
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <span style="color: #38bdf8;">1. Resource Graph</span>
+            </div>
+            <div class="flow-step-sub">Live Topological Inventory</div>
+            <div style="font-size: 0.70rem; color: var(--text-dim); margin-top: 4px;">KQL discovery of actual Azure resource estate</div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <span style="color: #34d399;">2. Azure Monitor</span>
+            </div>
+            <div class="flow-step-sub">Runtime Metrics</div>
+            <div style="font-size: 0.70rem; color: var(--text-dim); margin-top: 4px;">Real CPU, memory, storage & connections telemetry</div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <span style="color: #fde047;">3. Cost Management</span>
+            </div>
+            <div class="flow-step-sub">Actual Daily Billing</div>
+            <div style="font-size: 0.70rem; color: var(--text-dim); margin-top: 4px;">Metered financial consumption & statistical baselines</div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <span style="color: #06b6d4;">4. Log Analytics</span>
+            </div>
+            <div class="flow-step-sub">Activity & Flow Logs</div>
+            <div style="font-size: 0.70rem; color: var(--text-dim); margin-top: 4px;">Activity logs, NSG flow logs & threat detection</div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <span style="color: #c084fc;">5. AI Triage</span>
+            </div>
+            <div class="flow-step-sub">Autonomous Synthesis</div>
+            <div style="font-size: 0.70rem; color: var(--text-dim); margin-top: 4px;">Tripartition of facts, inferences & recommendations</div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-step-header">
+              <span style="color: #f43f5e;">6. Human Approval</span>
+            </div>
+            <div class="flow-step-sub">Controlled Remediation</div>
+            <div style="font-size: 0.70rem; color: var(--text-dim); margin-top: 4px;">Zero unapproved mutation, live verification</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Estate Composition Grid -->
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>☁️ Azure Resource Distribution</span>
+              <span class="source-badge arg">Azure Resource Graph</span>
+            </div>
+          </div>
+          <div style="padding: 18px;" id="ov-resource-dist">
+            <div class="empty-state">Loading resource composition...</div>
           </div>
         </div>
 
-        <div class="filter-bar">
-          <input type="text" class="search-input" id="search-query" placeholder="Search resource, title, or ID...">
-          <select class="filter-select" id="filter-severity">
-            <option value="">All Severities</option>
-            <option value="CRITICAL">Critical</option>
-            <option value="HIGH">High</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="LOW">Low</option>
-          </select>
-          <select class="filter-select" id="filter-status">
-            <option value="">All Statuses</option>
-            <option value="OPEN">Open</option>
-            <option value="INVESTIGATING">Investigating</option>
-            <option value="RESOLVED">Resolved</option>
-            <option value="CLOSED">Closed</option>
-          </select>
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>💰 Billed Cost by Category</span>
+              <span class="source-badge cost">Azure Cost Management</span>
+            </div>
+          </div>
+          <div style="padding: 18px;" id="ov-cost-dist">
+            <div class="empty-state">Loading billing distribution...</div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- TAB 2: RESOURCES (REAL AZURE RESOURCE INVENTORY & METRICS) -->
+    <section class="tab-content" id="tab-resources">
+      
+      <!-- Notice on Live Resource Graph Backing -->
+      <div class="notice-banner" style="background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.25); color: #7dd3fc;">
+        <span>ℹ️</span>
+        <div>
+          <strong>Azure Resource Inventory:</strong> Real-time topology queried directly from <strong>Azure Resource Graph</strong>. Click on any resource row to inspect live runtime metrics from <strong>Azure Monitor</strong>, billing breakdown from <strong>Azure Cost Management</strong>, and associated <strong>CloudPulse</strong> findings.
+        </div>
+      </div>
+
+      <!-- Resources Table Panel -->
+      <div class="data-table-container">
+        <div class="table-toolbar">
+          <div class="toolbar-left">
+            <input type="text" class="search-input" id="res-search-input" placeholder="Search resource name, type, or ID...">
+            <select class="filter-select" id="res-type-filter">
+              <option value="">All Resource Types</option>
+            </select>
+            <select class="filter-select" id="res-sev-filter">
+              <option value="">All Security States</option>
+              <option value="CRITICAL">Critical Severity</option>
+              <option value="HIGH">High Severity</option>
+              <option value="MEDIUM">Medium Severity</option>
+              <option value="LOW">Low Severity</option>
+              <option value="CLEAN">Clean (No Findings)</option>
+            </select>
+          </div>
+          <div class="toolbar-right">
+            <span style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);" id="res-filtered-count">Showing 0 resources</span>
+          </div>
         </div>
 
-        <div class="incident-list" id="incident-list-container">
-          <div class="empty-state">Loading CloudPulse incidents...</div>
+        <div style="overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Resource Name</th>
+                <th>Resource Type</th>
+                <th>Location</th>
+                <th>State</th>
+                <th>Actual Cost</th>
+                <th>Runtime Utilization</th>
+                <th>Security Findings</th>
+                <th>Severity</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="resources-table-body">
+              <tr>
+                <td colspan="9" class="empty-state">Loading Azure Resource Graph inventory...</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-      </aside>
+      </div>
+    </section>
 
-      <!-- Detail: Incident Inspector View -->
-      <section class="detail-view" id="detail-view-container">
-        <div class="empty-state panel" style="padding: 100px 20px;">
-          Select an incident from the feed to inspect telemetry, FinOps correlation, and AI triage.
+    <!-- TAB 3: COST & FINOPS (REAL AZURE BILLING & CORRELATION) -->
+    <section class="tab-content" id="tab-finops">
+      
+      <!-- Latency Notice Banner -->
+      <div class="notice-banner" id="finops-latency-banner">
+        <span>⚠️</span>
+        <div id="finops-latency-text">
+          <strong>Azure Cost Management Notice:</strong> Cost telemetry reflects closed daily billing cycles. Due to Azure billing latency, data has a 24–48h reconciliation window. Today's in-flight consumption is not shown until closed.
         </div>
-      </section>
+      </div>
 
-    </div>
+      <!-- FinOps Summary Grid -->
+      <div class="kpi-grid">
+        <div class="kpi-card financial">
+          <div class="kpi-label">
+            <span>Total Actual Cost</span>
+            <span class="source-badge cost">ActualCost</span>
+          </div>
+          <span class="kpi-value" id="fin-total-cost" style="color: #34d399;">₹0.00</span>
+          <span class="kpi-subtext" id="fin-period-text">Evaluation window</span>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-label">
+            <span>Billed Workloads</span>
+            <span class="source-badge arg">ARM Scope</span>
+          </div>
+          <span class="kpi-value" id="fin-workloads-count">0</span>
+          <span class="kpi-subtext">Active resource meters</span>
+        </div>
+
+        <div class="kpi-card correlated">
+          <div class="kpi-label">
+            <span>FinOps Anomalies</span>
+            <span class="source-badge cloudpulse">Baseline CV &gt; 1.5</span>
+          </div>
+          <span class="kpi-value" id="fin-anomalies-count" style="color: var(--accent-cyan);">0</span>
+          <span class="kpi-subtext">Workloads exceeding baselines</span>
+        </div>
+
+        <div class="kpi-card critical">
+          <div class="kpi-label">
+            <span>Correlated Overrun</span>
+            <span class="source-badge cloudpulse">SecOps Concurrence</span>
+          </div>
+          <span class="kpi-value" id="fin-correlated-overrun" style="color: var(--sev-critical);">₹0.00</span>
+          <span class="kpi-subtext">Linked to threat vectors</span>
+        </div>
+      </div>
+
+      <!-- Correlation Spotlight Card -->
+      <div class="correlation-card" id="finops-correlation-spotlight" style="margin-bottom: 24px;">
+        <div class="correlation-title">
+          <span>⚡ Security ↔ FinOps Attack Surface Concurrence</span>
+          <span class="source-badge cloudpulse" id="finops-corr-status-badge">Cross-Vector Detection</span>
+        </div>
+        <div id="finops-corr-body">
+          <div style="font-size: 0.82rem; color: var(--text-muted);">
+            No correlated security-financial anomaly detected in active baseline observations.
+          </div>
+        </div>
+      </div>
+
+      <!-- Top Cost Drivers Table -->
+      <div class="data-table-container">
+        <div class="table-toolbar">
+          <div class="toolbar-left">
+            <span style="font-size: 0.82rem; font-weight: 700; color: var(--text-main);">Top Azure Cost Drivers</span>
+            <span class="source-badge cost">Azure Cost Management</span>
+          </div>
+          <div class="toolbar-right">
+            <span style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);" id="finops-scope-label">Scope: Subscription</span>
+          </div>
+        </div>
+
+        <div style="overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Resource Name</th>
+                <th>Resource Type</th>
+                <th>Cost Category</th>
+                <th>Actual Cost</th>
+                <th>% of Total Billed</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="cost-drivers-table-body">
+              <tr>
+                <td colspan="6" class="empty-state">Loading Cost Management data...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- TAB 4: INCIDENTS (PRESERVED CLOUDPULSE INCIDENT FEED & AI TRIAGE) -->
+    <section class="tab-content" id="tab-incidents">
+
+      <div class="main-workspace">
+
+        <!-- Master: Incident List Panel -->
+        <aside class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>🛡️ Incident Feed</span>
+              <span class="badge-status OPEN" id="incident-count-badge">0</span>
+            </div>
+            <span class="source-badge postgres">PostgreSQL</span>
+          </div>
+
+          <div class="table-toolbar" style="padding: 10px 14px;">
+            <input type="text" class="search-input" id="search-query" placeholder="Search resource, title, or ID..." style="min-width: 160px; flex: 1;">
+            <select class="filter-select" id="filter-severity">
+              <option value="">All Severities</option>
+              <option value="CRITICAL">Critical</option>
+              <option value="HIGH">High</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="LOW">Low</option>
+            </select>
+            <select class="filter-select" id="filter-status">
+              <option value="">All Statuses</option>
+              <option value="OPEN">Open</option>
+              <option value="INVESTIGATING">Investigating</option>
+              <option value="RESOLVED">Resolved</option>
+              <option value="CLOSED">Closed</option>
+            </select>
+          </div>
+
+          <div class="incident-list" id="incident-list-container">
+            <div class="empty-state">Loading CloudPulse incidents...</div>
+          </div>
+        </aside>
+
+        <!-- Detail: Incident Inspector View -->
+        <section class="detail-view" id="detail-view-container">
+          <div class="empty-state panel" style="padding: 100px 20px;">
+            Select an incident from the feed to inspect telemetry, FinOps correlation, and AI triage.
+          </div>
+        </section>
+
+      </div>
+    </section>
+
   </main>
 
+  <!-- Deep Resource Detail Slide-Over Drawer -->
+  <div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+  <aside class="drawer-panel" id="drawer-panel">
+    <div class="drawer-header">
+      <div>
+        <div style="font-size: 0.70rem; color: var(--accent-cyan); font-family: var(--font-mono);" id="drawer-header-type">Azure Resource</div>
+        <div style="font-size: 1.10rem; font-weight: 700;" id="drawer-header-name">Resource Details</div>
+      </div>
+      <button class="btn-close-drawer" onclick="closeDrawer()" title="Close inspector">✕</button>
+    </div>
+
+    <div class="drawer-body" id="drawer-body-content">
+      <div class="empty-state">Loading resource details...</div>
+    </div>
+  </aside>
+
   <script>
-    // Global State
+    // Global Application State
+    let activeTab = 'overview';
     let incidents = [];
+    let resources = [];
+    let costSummary = null;
+    let estateOverview = null;
     let selectedIncidentId = null;
     let autoRefreshTimer = null;
 
@@ -895,51 +1324,541 @@
     setInterval(updateClock, 1000);
     updateClock();
 
-    // Data Loaders
-    async function loadDashboardData() {
-      try {
-        const [incResp, sumResp] = await Promise.all([
-          fetch('/api/incidents?limit=100'),
-          fetch('/api/dashboard/summary')
-        ]);
+    // Tab Navigation
+    function switchTab(tabId) {
+      activeTab = tabId;
+      document.querySelectorAll('.nav-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.tab === tabId);
+      });
+      document.querySelectorAll('.tab-content').forEach(c => {
+        c.classList.toggle('active', c.id === `tab-${tabId}`);
+      });
 
-        if (incResp.ok) {
-          const incData = await incResp.json();
-          incidents = incData.incidents || [];
-          renderIncidentList();
-          
-          // Auto select first incident if none selected
-          if (!selectedIncidentId && incidents.length > 0) {
-            selectIncident(incidents[0].incident_id);
-          } else if (selectedIncidentId) {
-            renderIncidentDetail(selectedIncidentId);
-          }
-        }
-
-        if (sumResp.ok) {
-          const sumData = await sumResp.json();
-          updateKPIs(sumData);
-        }
-      } catch (err) {
-        console.error("Error loading dashboard data:", err);
+      if (tabId === 'resources') renderResourcesTable();
+      if (tabId === 'finops') renderFinopsTab();
+      if (tabId === 'incidents' && !selectedIncidentId && incidents.length > 0) {
+        selectIncident(incidents[0].incident_id);
       }
     }
 
-    function updateKPIs(data) {
-      document.getElementById('kpi-total').innerText = data.total_incidents || 0;
-      const critHigh = (data.by_severity?.CRITICAL || 0) + (data.by_severity?.HIGH || 0);
-      document.getElementById('kpi-critical').innerText = critHigh;
-      document.getElementById('kpi-correlated').innerText = data.correlated_incidents || 0;
-      document.getElementById('kpi-cost').innerText = '$' + (data.total_financial_overrun || 0).toFixed(2);
-      document.getElementById('kpi-ai').innerText = data.triaged_count || 0;
-      document.getElementById('incident-count-badge').innerText = incidents.length;
+    // Main Data Fetcher
+    async function loadDashboardData() {
+      const icon = document.getElementById('refresh-icon');
+      if (icon) icon.style.animation = 'spin 0.6s linear';
+
+      try {
+        const [incResp, ovResp, resResp, costResp] = await Promise.all([
+          fetch('/api/incidents?limit=100').catch(() => null),
+          fetch('/api/estate/overview').catch(() => null),
+          fetch('/api/resources').catch(() => null),
+          fetch('/api/finops/costs').catch(() => null),
+        ]);
+
+        if (incResp && incResp.ok) {
+          const incData = await incResp.json();
+          incidents = incData.incidents || [];
+          document.getElementById('nav-inc-count').innerText = incidents.length;
+          renderIncidentList();
+        }
+
+        if (ovResp && ovResp.ok) {
+          estateOverview = await ovResp.json();
+          renderOverviewTab();
+        }
+
+        if (resResp && resResp.ok) {
+          const resData = await resResp.json();
+          resources = resData.resources || [];
+          document.getElementById('nav-res-count').innerText = resources.length;
+          populateResourceTypeDropdown();
+          if (activeTab === 'resources') renderResourcesTable();
+        }
+
+        if (costResp && costResp.ok) {
+          costSummary = await costResp.json();
+          if (activeTab === 'finops') renderFinopsTab();
+        }
+
+        // Auto-select first incident if on incidents tab
+        if (selectedIncidentId) {
+          renderIncidentDetail(selectedIncidentId);
+        } else if (incidents.length > 0 && activeTab === 'incidents') {
+          selectIncident(incidents[0].incident_id);
+        }
+
+      } catch (err) {
+        console.error("Error loading CloudPulse telemetry:", err);
+      } finally {
+        if (icon) icon.style.animation = 'none';
+      }
     }
 
-    // Filter Logic
+    // ----------------------------------------------------
+    // TAB 1: OVERVIEW RENDERING
+    // ----------------------------------------------------
+    function renderOverviewTab() {
+      if (!estateOverview) return;
+
+      const subId = estateOverview.subscription_id || 'Azure';
+      const shortSub = subId.substring(0, 8) + '...';
+      document.getElementById('azure-sub-display').innerText = `Azure Connected (${shortSub})`;
+
+      document.getElementById('ov-resources-count').innerText = estateOverview.resources?.total || 0;
+      
+      const currency = estateOverview.costs?.currency || 'INR';
+      const costTotal = estateOverview.costs?.total_cost || 0;
+      const currSymbol = currency === 'INR' ? '₹' : (currency === 'USD' ? '$' : currency + ' ');
+      document.getElementById('ov-billed-cost').innerText = `${currSymbol}${costTotal.toFixed(2)}`;
+      
+      if (estateOverview.costs?.latest_usage_date) {
+        document.getElementById('ov-cost-period').innerText = `Closed billing through ${estateOverview.costs.latest_usage_date}`;
+      }
+
+      document.getElementById('ov-incidents-count').innerText = estateOverview.security?.total_incidents || 0;
+      const critCount = (estateOverview.security?.by_severity?.CRITICAL || 0) + (estateOverview.security?.by_severity?.HIGH || 0);
+      document.getElementById('ov-crit-count').innerText = `${critCount} Critical/High priority`;
+
+      document.getElementById('ov-correlated-count').innerText = estateOverview.security?.correlated_incidents || 0;
+
+      // Count triaged incidents
+      const triaged = incidents.filter(i => i.ai_analysis && i.ai_analysis.status === 'COMPLETED').length;
+      document.getElementById('ov-ai-count').innerText = triaged;
+
+      // Resource Distribution
+      const distContainer = document.getElementById('ov-resource-dist');
+      const byType = estateOverview.resources?.by_type || {};
+      const typeKeys = Object.keys(byType);
+      if (typeKeys.length === 0) {
+        distContainer.innerHTML = '<div class="empty-state">No resources discovered via Azure Resource Graph.</div>';
+      } else {
+        const total = estateOverview.resources?.total || 1;
+        distContainer.innerHTML = typeKeys.map(t => {
+          const count = byType[t];
+          const pct = Math.round((count / total) * 100);
+          const shortName = t.split('/').pop() || t;
+          return `
+            <div style="margin-bottom: 10px;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.74rem; margin-bottom: 3px;">
+                <span style="font-family: var(--font-mono); color: var(--text-main);">${escapeHtml(shortName)}</span>
+                <span style="color: var(--text-dim);">${count} (${pct}%)</span>
+              </div>
+              <div style="height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
+                <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #38bdf8, #06b6d4);"></div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Cost Category Distribution
+      const costDistContainer = document.getElementById('ov-cost-dist');
+      const byCat = estateOverview.costs?.by_category || {};
+      const catKeys = Object.keys(byCat);
+      if (catKeys.length === 0 || costTotal === 0) {
+        costDistContainer.innerHTML = '<div class="empty-state">No categorized billing records in current window.</div>';
+      } else {
+        costDistContainer.innerHTML = catKeys.map(c => {
+          const costVal = byCat[c];
+          const pct = costTotal > 0 ? Math.round((costVal / costTotal) * 100) : 0;
+          return `
+            <div style="margin-bottom: 10px;">
+              <div style="display: flex; justify-content: space-between; font-size: 0.74rem; margin-bottom: 3px;">
+                <span style="color: var(--text-main); font-weight: 600;">${escapeHtml(c)}</span>
+                <span style="font-family: var(--font-mono); color: #34d399;">${currSymbol}${costVal.toFixed(2)} (${pct}%)</span>
+              </div>
+              <div style="height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
+                <div style="width: ${pct}%; height: 100%; background: linear-gradient(90deg, #10b981, #06b6d4);"></div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // ----------------------------------------------------
+    // TAB 2: RESOURCES TABLE RENDERING
+    // ----------------------------------------------------
+    function populateResourceTypeDropdown() {
+      const select = document.getElementById('res-type-filter');
+      const current = select.value;
+      const types = Array.from(new Set(resources.map(r => r.type).filter(Boolean))).sort();
+      select.innerHTML = '<option value="">All Resource Types</option>' + 
+        types.map(t => `<option value="${escapeHtml(t)}" ${t === current ? 'selected' : ''}>${escapeHtml(t.split('/').pop() || t)}</option>`).join('');
+    }
+
+    function getFilteredResources() {
+      const q = (document.getElementById('res-search-input')?.value || '').toLowerCase().trim();
+      const typeFilter = (document.getElementById('res-type-filter')?.value || '').toLowerCase();
+      const sevFilter = (document.getElementById('res-sev-filter')?.value || '').toUpperCase();
+
+      return resources.filter(r => {
+        if (typeFilter && (r.type || '').toLowerCase() !== typeFilter) return false;
+        if (sevFilter) {
+          if (sevFilter === 'CLEAN' && (r.findings_count > 0 || r.max_severity)) return false;
+          if (sevFilter !== 'CLEAN' && (r.max_severity || '') !== sevFilter) return false;
+        }
+        if (q) {
+          const matchName = (r.name || '').toLowerCase().includes(q);
+          const matchType = (r.type || '').toLowerCase().includes(q);
+          const matchId = (r.id || '').toLowerCase().includes(q);
+          if (!matchName && !matchType && !matchId) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderResourcesTable() {
+      const tbody = document.getElementById('resources-table-body');
+      const filtered = getFilteredResources();
+      document.getElementById('res-filtered-count').innerText = `Showing ${filtered.length} of ${resources.length} resources`;
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-state">No matching Azure resources found.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(r => {
+        const currSymbol = r.currency === 'INR' ? '₹' : (r.currency === 'USD' ? '$' : (r.currency || '') + ' ');
+        const costDisplay = (r.actual_cost !== null && r.actual_cost !== undefined)
+          ? `<span style="font-family: var(--font-mono); color: #34d399; font-weight: 600;">${currSymbol}${r.actual_cost.toFixed(2)}</span>`
+          : `<span style="color: var(--text-dim); font-size: 0.70rem;">No billing data</span>`;
+
+        let utilDisplay = `<span style="color: var(--text-dim); font-size: 0.70rem;">Metrics unavailable for this resource type</span>`;
+        if (r.metrics_supported) {
+          utilDisplay = `<span class="source-badge monitor" style="font-size: 0.68rem;">● Live Monitor Enabled</span>`;
+        }
+
+        const sev = r.max_severity || (r.findings_count > 0 ? 'HIGH' : 'CLEAN');
+        const findingsBadge = r.findings_count > 0
+          ? `<span class="badge-status OPEN" style="cursor:pointer;" onclick="event.stopPropagation(); inspectResource('${escapeHtml(r.id)}')">${r.findings_count} Finding${r.findings_count > 1 ? 's' : ''}</span>`
+          : `<span class="source-badge monitor" style="color: #34d399; border-color: rgba(16,185,129,0.3);">Clean</span>`;
+
+        const shortType = (r.type || '').split('/').pop() || r.type;
+
+        return `
+          <tr onclick="inspectResource('${escapeHtml(r.id)}')">
+            <td>
+              <div style="font-weight: 600; color: var(--text-main); font-size: 0.82rem;">${escapeHtml(r.name)}</div>
+              <div style="font-family: var(--font-mono); font-size: 0.65rem; color: var(--text-dim);">${escapeHtml((r.id || '').split('/').pop() || '')}</div>
+            </td>
+            <td>
+              <span class="source-badge arg">${escapeHtml(shortType)}</span>
+            </td>
+            <td style="color: var(--text-muted); font-size: 0.74rem;">${escapeHtml(r.location || 'global')}</td>
+            <td>
+              <span style="font-size: 0.70rem; color: #34d399; font-family: var(--font-mono);">✓ ${escapeHtml(r.provisioning_state || 'Succeeded')}</span>
+            </td>
+            <td>${costDisplay}</td>
+            <td>${utilDisplay}</td>
+            <td>${findingsBadge}</td>
+            <td><span class="badge-sev ${sev}">${sev}</span></td>
+            <td>
+              <button class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.70rem;" onclick="event.stopPropagation(); inspectResource('${escapeHtml(r.id)}')">
+                Inspect ↗
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Resource Filter Listeners
+    document.getElementById('res-search-input')?.addEventListener('input', renderResourcesTable);
+    document.getElementById('res-type-filter')?.addEventListener('change', renderResourcesTable);
+    document.getElementById('res-sev-filter')?.addEventListener('change', renderResourcesTable);
+
+    // ----------------------------------------------------
+    // DEEP RESOURCE INSPECTOR SLIDE-OVER DRAWER
+    // ----------------------------------------------------
+    async function inspectResource(resourceId) {
+      const overlay = document.getElementById('drawer-overlay');
+      const drawer = document.getElementById('drawer-panel');
+      const body = document.getElementById('drawer-body-content');
+
+      overlay.classList.add('active');
+      drawer.classList.add('active');
+      body.innerHTML = '<div class="empty-state"><span class="loader"></span> Querying live Azure APIs (Resource Graph, Monitor, Cost Management)...</div>';
+
+      try {
+        const resp = await fetch(`/api/resources${resourceId}`);
+        if (!resp.ok) {
+          body.innerHTML = `<div class="empty-state panel">Failed to retrieve resource detail from Azure API (${resp.status}).</div>`;
+          return;
+        }
+
+        const data = await resp.json();
+        renderDrawerContent(data);
+      } catch (err) {
+        console.error("Error inspecting resource:", err);
+        body.innerHTML = `<div class="empty-state panel">Error fetching resource details: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function closeDrawer() {
+      document.getElementById('drawer-overlay').classList.remove('active');
+      document.getElementById('drawer-panel').classList.remove('active');
+    }
+
+    function renderDrawerContent(data) {
+      const res = data.resource || {};
+      const cost = data.cost || {};
+      const util = data.utilization || {};
+      const sec = data.security || {};
+      const fin = data.finops || {};
+      const inc = data.incidents || {};
+
+      document.getElementById('drawer-header-type').innerText = res.type || 'Azure Resource';
+      document.getElementById('drawer-header-name').innerText = res.name || 'Resource Inspector';
+
+      const currSymbol = cost.currency === 'INR' ? '₹' : (cost.currency === 'USD' ? '$' : (cost.currency || '') + ' ');
+      const body = document.getElementById('drawer-body-content');
+
+      let metricsHtml = '<div style="color: var(--text-dim); font-size: 0.76rem;">Metrics unavailable for this resource type</div>';
+      if (util.supported && util.metrics && Object.keys(util.metrics).length > 0) {
+        metricsHtml = `
+          <div class="metric-grid">
+            ${Object.values(util.metrics).map(m => `
+              <div class="metric-box">
+                <span class="metric-box-title">${escapeHtml(m.display_name || m.name)}</span>
+                <span class="metric-box-val">${m.latest_value !== null ? m.latest_value : '—'} <span style="font-size: 0.65rem; color: var(--text-dim);">${escapeHtml(m.unit || '')}</span></span>
+                ${m.latest_timestamp ? `<span style="font-size: 0.60rem; color: var(--text-dim); font-family: var(--font-mono);">${m.latest_timestamp.substring(11, 19)} UTC</span>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        `;
+      } else if (util.message) {
+        metricsHtml = `<div style="color: var(--text-dim); font-size: 0.76rem;">${escapeHtml(util.message)}</div>`;
+      }
+
+      let costHtml = '<div style="color: var(--text-dim); font-size: 0.76rem;">No billing data available for selected period</div>';
+      if (cost.has_billing_data) {
+        costHtml = `
+          <div style="display: flex; align-items: baseline; gap: 8px;">
+            <span style="font-size: 1.4rem; font-weight: 700; color: #34d399; font-family: var(--font-mono);">${currSymbol}${(cost.total_cost || 0).toFixed(2)}</span>
+            <span class="source-badge cost">${escapeHtml(cost.cost_category || 'Billed')}</span>
+          </div>
+          ${cost.meters && cost.meters.length > 0 ? `
+            <div style="margin-top: 8px;">
+              <div style="font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;">Meter Breakdown:</div>
+              <ul class="tri-list">
+                ${cost.meters.map(m => `<li><span style="font-family: var(--font-mono);">${escapeHtml(m.meter_name)}</span>: ${currSymbol}${(m.cost || 0).toFixed(4)}</li>`).join('')}
+              </ul>
+            </div>
+          ` : ''}
+          ${cost.period?.billing_latency_notice ? `
+            <div style="font-size: 0.68rem; color: #fde047; margin-top: 6px;">ℹ️ ${escapeHtml(cost.period.billing_latency_notice)}</div>
+          ` : ''}
+        `;
+      }
+
+      let findingsHtml = '<div style="color: #34d399; font-size: 0.76rem;">✓ No CloudPulse security findings detected on this workload.</div>';
+      if (sec.findings && sec.findings.length > 0) {
+        findingsHtml = `
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${sec.findings.map(f => `
+              <div style="background: rgba(0,0,0,0.25); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 8px 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <span class="badge-sev ${f.severity}">${f.severity}</span>
+                  <span style="font-family: var(--font-mono); font-size: 0.70rem; color: var(--accent-cyan);">${f.finding_id}</span>
+                </div>
+                <div style="font-size: 0.78rem; font-weight: 600;">${f.finding_type}</div>
+                <div style="font-size: 0.68rem; color: var(--text-dim); font-family: var(--font-mono);">${f.timestamp}</div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      let incidentsHtml = '<div style="color: var(--text-dim); font-size: 0.76rem;">No correlated security-financial anomaly detected.</div>';
+      if (inc.incidents && inc.incidents.length > 0) {
+        incidentsHtml = `
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${inc.incidents.map(i => `
+              <div style="background: rgba(0,0,0,0.25); border: 1px solid rgba(244,63,94,0.3); border-radius: var(--radius-sm); padding: 10px 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                  <span class="badge-sev ${i.severity}">${i.severity}</span>
+                  <span class="badge-status ${i.status}">${i.status}</span>
+                  <span style="font-family: var(--font-mono); font-size: 0.70rem; color: var(--accent-cyan);">${i.incident_id}</span>
+                </div>
+                <div style="font-size: 0.80rem; font-weight: 600; margin-bottom: 6px;">${escapeHtml(i.title)}</div>
+                <button class="btn btn-secondary" style="padding: 3px 8px; font-size: 0.68rem;" onclick="closeDrawer(); switchTab('incidents'); selectIncident('${i.incident_id}');">
+                  Open in Incidents Console →
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      body.innerHTML = `
+        <!-- Section 1: Resource Identity -->
+        <div class="detail-card">
+          <div class="detail-card-header">
+            <span class="detail-card-title">1. Resource Identity</span>
+            <span class="source-badge arg">Source: Azure Resource Graph</span>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.74rem;">
+            <div><span class="meta-label">Name:</span> <strong style="color: var(--text-main);">${escapeHtml(res.name)}</strong></div>
+            <div><span class="meta-label">Location:</span> ${escapeHtml(res.location)}</div>
+            <div><span class="meta-label">Resource Group:</span> ${escapeHtml(res.resourceGroup)}</div>
+            <div><span class="meta-label">State:</span> <span style="color:#34d399;">${escapeHtml(res.provisioningState || 'Succeeded')}</span></div>
+          </div>
+          <div>
+            <span class="meta-label">Canonical ARM ID:</span>
+            <div style="font-family: var(--font-mono); font-size: 0.68rem; color: var(--text-muted); word-break: break-all; margin-top: 2px;">
+              ${escapeHtml(res.id)}
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Actual Cost -->
+        <div class="detail-card">
+          <div class="detail-card-header">
+            <span class="detail-card-title">2. Actual Azure Cost</span>
+            <span class="source-badge cost">Source: Azure Cost Management</span>
+          </div>
+          ${costHtml}
+        </div>
+
+        <!-- Section 3: Runtime Metrics -->
+        <div class="detail-card">
+          <div class="detail-card-header">
+            <span class="detail-card-title">3. Runtime Utilization</span>
+            <span class="source-badge monitor">Source: Azure Monitor</span>
+          </div>
+          ${metricsHtml}
+        </div>
+
+        <!-- Section 4: Security Findings -->
+        <div class="detail-card">
+          <div class="detail-card-header">
+            <span class="detail-card-title">4. Threat Surface Findings (${sec.findings_count || 0})</span>
+            <span class="source-badge cloudpulse">Source: CloudPulse Detection Engine</span>
+          </div>
+          ${findingsHtml}
+        </div>
+
+        <!-- Section 5: Correlated Incidents -->
+        <div class="detail-card">
+          <div class="detail-card-header">
+            <span class="detail-card-title">5. Correlated Incidents (${inc.count || 0})</span>
+            <span class="source-badge postgres">Source: CloudPulse PostgreSQL state</span>
+          </div>
+          ${incidentsHtml}
+        </div>
+      `;
+    }
+
+    // ----------------------------------------------------
+    // TAB 3: COST & FINOPS RENDERING
+    // ----------------------------------------------------
+    function renderFinopsTab() {
+      if (!costSummary) return;
+
+      const currency = costSummary.currency || 'INR';
+      const currSymbol = currency === 'INR' ? '₹' : (currency === 'USD' ? '$' : currency + ' ');
+      const totalCost = costSummary.summary?.total_cost || 0;
+      document.getElementById('fin-total-cost').innerText = `${currSymbol}${totalCost.toFixed(2)}`;
+
+      if (costSummary.period?.start_date && costSummary.period?.end_date) {
+        document.getElementById('fin-period-text').innerText = `${costSummary.period.start_date} to ${costSummary.period.end_date}`;
+      }
+
+      document.getElementById('fin-workloads-count').innerText = costSummary.summary?.resource_count || 0;
+
+      const anomalies = costSummary.anomalies || [];
+      document.getElementById('fin-anomalies-count').innerText = anomalies.length;
+
+      // Correlated overrun calculation
+      let overrun = 0;
+      incidents.forEach(inc => {
+        if (inc.cost_impact?.deviation_absolute) overrun += parseFloat(inc.cost_impact.deviation_absolute);
+      });
+      document.getElementById('fin-correlated-overrun').innerText = `${currSymbol}${overrun.toFixed(2)}`;
+
+      // Latency notice
+      if (costSummary.period?.billing_latency_notice) {
+        document.getElementById('finops-latency-text').innerHTML = `<strong>Azure Cost Management Notice:</strong> ${escapeHtml(costSummary.period.billing_latency_notice)}`;
+      }
+
+      // Top Cost Drivers Table
+      const driversTbody = document.getElementById('cost-drivers-table-body');
+      const drivers = costSummary.top_cost_drivers || [];
+      if (drivers.length === 0) {
+        driversTbody.innerHTML = '<tr><td colspan="6" class="empty-state">No cost driver records available.</td></tr>';
+      } else {
+        driversTbody.innerHTML = drivers.map(d => {
+          const dCurr = d.currency === 'INR' ? '₹' : (d.currency === 'USD' ? '$' : (d.currency || '') + ' ');
+          return `
+            <tr>
+              <td>
+                <strong style="color: var(--text-main);">${escapeHtml(d.resource_name)}</strong>
+              </td>
+              <td><span class="source-badge arg">${escapeHtml(d.resource_type ? d.resource_type.split('/').pop() : 'Resource')}</span></td>
+              <td>${escapeHtml(d.cost_category || 'General')}</td>
+              <td><span style="font-family: var(--font-mono); color: #34d399; font-weight: 700;">${dCurr}${(d.total_cost || 0).toFixed(2)}</span></td>
+              <td>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-family: var(--font-mono); font-size: 0.72rem;">${d.percentage_of_total}%</span>
+                  <div style="width: 80px; height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden;">
+                    <div style="width: ${d.percentage_of_total}%; height: 100%; background: #34d399;"></div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="source-badge cost">Closed Bill</span></td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      // Correlation Spotlight
+      const corrBody = document.getElementById('finops-corr-body');
+      const correlatedIncidents = incidents.filter(i => i.cost_impact);
+      if (correlatedIncidents.length === 0) {
+        corrBody.innerHTML = `
+          <div style="font-size: 0.82rem; color: var(--text-muted);">
+            No correlated security-financial anomaly detected.
+          </div>
+        `;
+      } else {
+        const topCorr = correlatedIncidents[0];
+        const ci = topCorr.cost_impact;
+        corrBody.innerHTML = `
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 14px;">
+            <div class="corr-stat">
+              <div class="corr-stat-lbl">Target Workload</div>
+              <div class="corr-stat-val" style="font-size: 0.95rem; color: var(--accent-cyan);">${escapeHtml(topCorr.resource?.name || 'Workload')}</div>
+            </div>
+            <div class="corr-stat">
+              <div class="corr-stat-lbl">Spike Cost Category</div>
+              <div class="corr-stat-val">${escapeHtml(ci.cost_category)}</div>
+            </div>
+            <div class="corr-stat">
+              <div class="corr-stat-lbl">Financial Surge</div>
+              <div class="corr-stat-val positive">+${(ci.percentage_increase || 0).toFixed(0)}% (+$${(ci.deviation_absolute || 0).toFixed(2)})</div>
+            </div>
+            <div class="corr-stat">
+              <div class="corr-stat-lbl">Correlated Incident</div>
+              <div class="corr-stat-val" style="font-size: 0.90rem;">${escapeHtml(topCorr.incident_id)}</div>
+            </div>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-main); line-height: 1.5; background: rgba(0,0,0,0.25); padding: 12px; border-radius: var(--radius-sm); border-left: 3px solid var(--accent-cyan);">
+            <strong>Correlation Evidence:</strong> Workload <code>${escapeHtml(topCorr.resource?.name)}</code> experienced anomalous perimeter exposure and suspicious outbound network flow concurrent with a financial surge in ${escapeHtml(ci.cost_category)} billing.
+            <button class="btn btn-secondary" style="margin-left: 12px; padding: 2px 8px; font-size: 0.68rem;" onclick="switchTab('incidents'); selectIncident('${topCorr.incident_id}');">
+              Inspect in Incidents Console →
+            </button>
+          </div>
+        `;
+      }
+    }
+
+    // ----------------------------------------------------
+    // TAB 4: INCIDENTS CONSOLE (PRESERVED FULL WORKFLOW)
+    // ----------------------------------------------------
     function getFilteredIncidents() {
-      const query = (document.getElementById('search-query').value || '').toLowerCase().trim();
-      const sev = document.getElementById('filter-severity').value;
-      const stat = document.getElementById('filter-status').value;
+      const query = (document.getElementById('search-query')?.value || '').toLowerCase().trim();
+      const sev = document.getElementById('filter-severity')?.value;
+      const stat = document.getElementById('filter-status')?.value;
 
       return incidents.filter(inc => {
         if (sev && inc.severity !== sev) return false;
@@ -976,7 +1895,7 @@
             <div class="item-top">
               <span class="badge-sev ${inc.severity}">${inc.severity}</span>
               <span class="badge-status ${inc.status}">${inc.status}</span>
-              <span class="item-id">${inc.incident_id}</span>
+              <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">${inc.incident_id}</span>
             </div>
             <div class="item-title">${escapeHtml(inc.title)}</div>
             <div class="item-footer">
@@ -1006,7 +1925,6 @@
         return;
       }
 
-      // Fetch linked findings for evidence display
       let findingsList = [];
       try {
         const fResp = await fetch(`/api/incidents/${incidentId}/findings`);
@@ -1022,20 +1940,18 @@
       const aiAnalysis = inc.ai_analysis;
       const isTriaged = aiAnalysis && aiAnalysis.status === 'COMPLETED';
 
-      // 1. Header HTML
       let html = `
         <div class="detail-header-card">
-          <div class="detail-title-row">
+          <div class="item-top">
             <div>
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
                 <span class="badge-sev ${inc.severity}">${inc.severity}</span>
-                <span class="item-id">${inc.incident_id}</span>
+                <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-dim);">${inc.incident_id}</span>
                 <span style="font-size: 0.74rem; color: var(--text-dim);">Created: ${inc.created_at}</span>
               </div>
               <h1 class="detail-heading">${escapeHtml(inc.title)}</h1>
             </div>
 
-            <!-- Lifecycle Status Changer -->
             <div style="display: flex; align-items: center; gap: 8px;">
               <select class="filter-select" style="font-weight: 600;" onchange="updateIncidentStatus('${inc.incident_id}', this.value)">
                 <option value="OPEN" ${inc.status === 'OPEN' ? 'selected' : ''}>Status: OPEN</option>
@@ -1048,7 +1964,7 @@
 
           <div class="detail-meta-grid">
             <div class="meta-box">
-              <span class="meta-label">Resource Name</span>
+              <span class="meta-label">Workload</span>
               <span class="meta-val" style="color: var(--accent-cyan); font-weight: 600;">${escapeHtml(inc.resource.name)}</span>
             </div>
             <div class="meta-box">
@@ -1067,13 +1983,12 @@
         </div>
       `;
 
-      // 2. Security ↔ FinOps Correlation Card
       if (costImpact) {
         html += `
           <div class="correlation-card">
             <div class="correlation-title">
               <span>⚡ Security ↔ FinOps Concurrence</span>
-              <span class="brand-badge" style="background: rgba(6,182,212,0.15);">${costImpact.correlation_strength} (${(costImpact.correlation_confidence * 100).toFixed(0)}% Conf)</span>
+              <span class="source-badge cloudpulse">${costImpact.correlation_strength} (${(costImpact.correlation_confidence * 100).toFixed(0)}% Conf)</span>
             </div>
             <div class="correlation-grid">
               <div class="corr-stat">
@@ -1097,11 +2012,10 @@
         `;
       }
 
-      // 3. AI Assessment Section
       html += `
         <div class="ai-card">
           <div class="ai-header">
-            <div class="ai-badge-group">
+            <div style="display: flex; align-items: center; gap: 10px;">
               <div class="ai-pill">
                 <span>🤖 Azure AI Triage</span>
               </div>
@@ -1119,34 +2033,22 @@
 
       if (isTriaged) {
         html += `
-          <div class="ai-block">
+          <div>
             <div class="ai-block-title">Executive Summary</div>
             <div class="ai-block-text">${escapeHtml(aiAnalysis.summary)}</div>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
-            <div class="ai-block">
+            <div>
               <div class="ai-block-title">Risk Assessment</div>
               <div class="ai-block-text">${escapeHtml(aiAnalysis.risk_assessment)}</div>
             </div>
-            <div class="ai-block">
+            <div>
               <div class="ai-block-title">Likely Scenario</div>
               <div class="ai-block-text">${escapeHtml(aiAnalysis.likely_scenario)}</div>
             </div>
           </div>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
-            <div class="ai-block">
-              <div class="ai-block-title">Security Impact</div>
-              <div class="ai-block-text">${escapeHtml(aiAnalysis.security_impact)}</div>
-            </div>
-            <div class="ai-block">
-              <div class="ai-block-title">Financial Impact</div>
-              <div class="ai-block-text">${escapeHtml(aiAnalysis.financial_impact)}</div>
-            </div>
-          </div>
-
-          <!-- Strict Tripartition Display -->
           <div class="tripartition-grid">
             <div class="tri-box facts">
               <div class="ai-block-title" style="color: #38bdf8;">Verified Facts (Telemetry Grounded)</div>
@@ -1163,8 +2065,7 @@
             </div>
           </div>
 
-          <!-- Recommended Operator Actions & Controlled Remediation Pipeline -->
-          <div class="ai-block">
+          <div>
             <div class="ai-block-title" style="color: #34d399;">Recommended Operator Actions & Controlled Remediation</div>
             <div class="actions-list">
               ${(aiAnalysis.recommended_actions || []).map(act => {
@@ -1174,14 +2075,8 @@
                 const isVerified = status === 'VERIFIED';
                 const isApproved = status === 'APPROVED';
                 const isExecuting = status === 'EXECUTING' || status === 'VERIFYING';
-                const isFailed = status === 'FAILED' || status === 'PRECONDITION_FAILED' || status === 'VERIFICATION_FAILED' || status === 'NEEDS_REVIEW';
+                const isFailed = status === 'FAILED' || status === 'PRECONDITION_FAILED' || status === 'VERIFICATION_FAILED';
                 const isRejected = status === 'REJECTED';
-
-                let targetDisplay = '';
-                if (rem && (rem.target_rule_name || rem.target_resource_id)) {
-                  const targetResShort = (rem.target_resource_id || '').split('/').pop();
-                  targetDisplay = rem.target_rule_name ? `${rem.target_rule_name} (${targetResShort})` : targetResShort;
-                }
 
                 return `
                   <div class="action-item" id="action-item-${act.id}">
@@ -1189,60 +2084,33 @@
                       <div class="action-title">
                         <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-cyan);">${act.id}</span>
                         <span>${escapeHtml(act.title)}</span>
-                        <span class="badge-status ${act.category === 'CONTAINMENT' ? 'OPEN' : 'INVESTIGATING'}">${act.category}</span>
-                        <span class="node-tag">Risk: ${act.risk}</span>
                         <span class="badge-status ${status}">${status}</span>
                       </div>
                       <div class="action-desc">${escapeHtml(act.description)}</div>
 
-                      ${targetDisplay ? `
-                        <div style="margin-top: 6px; font-size: 0.72rem; font-family: var(--font-mono); color: var(--text-dim);">
-                          Target Evidence: <span style="color: var(--accent-cyan);">${escapeHtml(targetDisplay)}</span>
-                        </div>
-                      ` : ''}
-
                       ${rem && rem.approval && rem.approval.operator ? `
-                        <div style="margin-top: 4px; font-size: 0.72rem; color: var(--text-muted);">
-                          Authorized by: <span style="color: var(--text-main); font-family: var(--font-mono);">${escapeHtml(rem.approval.operator)}</span>
-                          ${rem.approval.timestamp ? ` at ${escapeHtml(rem.approval.timestamp.slice(11, 19))}` : ''}
+                        <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 4px;">
+                          Authorized by: <strong style="color: var(--text-main);">${escapeHtml(rem.approval.operator)}</strong>
                           ${rem.approval.notes ? ` — <em>"${escapeHtml(rem.approval.notes)}"</em>` : ''}
                         </div>
                       ` : ''}
 
-                      ${rem && rem.execution && rem.execution.executed_at ? `
-                        <div style="margin-top: 4px; font-size: 0.72rem; color: var(--text-muted);">
-                          Mutation executed at <span style="font-family: var(--font-mono);">${escapeHtml(rem.execution.executed_at.slice(11, 19))}</span> (${rem.execution.duration_ms || 0}ms)
-                        </div>
-                      ` : ''}
-
                       ${isVerified && rem && rem.verification ? `
-                        <div style="margin-top: 6px; font-size: 0.74rem; color: #34d399; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                          <span>✓ Azure Live State Verified:</span>
-                          <span style="font-family: var(--font-mono); background: rgba(16, 185, 129, 0.15); padding: 1px 6px; border-radius: 4px;">${escapeHtml(rem.verification.verified_state || 'COMPLIANT')}</span>
-                          <span style="font-size: 0.68rem; color: var(--text-dim);">${escapeHtml(rem.verification.verified_at || '')}</span>
-                        </div>
-                      ` : ''}
-
-                      ${isFailed && rem && rem.error_message ? `
-                        <div style="margin-top: 6px; font-size: 0.74rem; color: #f43f5e; font-weight: 600;">
-                          ⚠ ${escapeHtml(rem.error_message)}
+                        <div style="font-size: 0.74rem; color: #34d399; font-weight: 600; margin-top: 4px;">
+                          ✓ Azure State Live-Verified: <code>${escapeHtml(rem.verification.verified_state || 'COMPLIANT')}</code>
                         </div>
                       ` : ''}
                     </div>
 
-                    <div class="action-controls" id="action-controls-${act.id}">
+                    <div class="action-controls">
                       ${isVerified ? `
                         <span class="badge-status VERIFIED">VERIFIED</span>
-                      ` : isExecuting ? `
-                        <span class="badge-status EXECUTING">Executing & Verifying...</span>
                       ` : isApproved ? `
                         <button class="btn-execute" id="btn-exec-${act.id}" onclick="handleExecuteRemediation('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}')">
                           ⚡ Execute Remediation
                         </button>
                       ` : isRejected ? `
                         <span class="badge-status CLOSED">REJECTED</span>
-                      ` : isFailed ? `
-                        <button class="btn-approve" onclick="handleActionApproval('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}', 'APPROVED')">Re-Authorize</button>
                       ` : `
                         <button class="btn-approve" onclick="handleActionApproval('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}', 'APPROVED')">Authorize</button>
                         <button class="btn-reject" onclick="handleActionApproval('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}', 'REJECTED')">Reject</button>
@@ -1253,15 +2121,6 @@
               }).join('')}
             </div>
           </div>
-
-          ${(aiAnalysis.limitations && aiAnalysis.limitations.length > 0) ? `
-            <div class="ai-block" style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: var(--radius-sm);">
-              <div class="ai-block-title" style="color: var(--text-dim);">Explicit Limitations & Unverified Evidence</div>
-              <ul class="tri-list">
-                ${aiAnalysis.limitations.map(lim => `<li>${escapeHtml(lim)}</li>`).join('')}
-              </ul>
-            </div>
-          ` : ''}
         `;
       } else {
         html += `
@@ -1271,15 +2130,15 @@
           </div>
         `;
       }
-      html += `</div>`; // Close AI card
+      html += `</div>`;
 
-      // 4. Incident Timeline Flow
+      // Timeline Flow
       html += `
         <div class="timeline-card">
           <div class="timeline-title">Chronological Evidence Timeline</div>
           <div class="timeline-flow">
             ${(inc.timeline || []).map(entry => `
-              <div class="timeline-node ${entry.event}">
+              <div class="timeline-node">
                 <div class="node-header">
                   <span class="node-time">${entry.timestamp}</span>
                   <span class="node-tag">${escapeHtml(entry.event)}</span>
@@ -1295,16 +2154,16 @@
         </div>
       `;
 
-      // 5. Correlated Findings & Evidence
+      // Findings Grid
       html += `
         <div class="findings-card">
-          <div class="findings-header">Associated Evidence Records (${findingsList.length})</div>
+          <div class="timeline-title">Associated Evidence Records (${findingsList.length})</div>
           <div class="evidence-grid">
             ${findingsList.map(f => `
               <div class="evidence-item">
-                <div class="evidence-top">
+                <div class="item-top">
                   <span class="badge-sev ${f.severity}">${f.severity}</span>
-                  <span class="evidence-id">${f.finding_id}</span>
+                  <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-cyan);">${f.finding_id}</span>
                 </div>
                 <div style="font-size: 0.78rem; font-weight: 600;">${f.finding_type}</div>
                 <div class="evidence-body">${escapeHtml(JSON.stringify(f.evidence, null, 2))}</div>
@@ -1333,18 +2192,14 @@
 
         if (resp.ok) {
           const result = await resp.json();
-          // Update local incident cache
           const idx = incidents.findIndex(i => i.incident_id === incidentId);
-          if (idx !== -1 && result.incident) {
-            incidents[idx] = result.incident;
-          }
+          if (idx !== -1 && result.incident) incidents[idx] = result.incident;
           await loadDashboardData();
           renderIncidentDetail(incidentId);
         } else {
           alert("AI Triage could not be generated. Check server logs.");
         }
       } catch (err) {
-        console.error("AI triage error:", err);
         alert("AI triage request failed: " + err.message);
       } finally {
         if (btn) btn.disabled = false;
@@ -1352,7 +2207,7 @@
       }
     }
 
-    // Update Status
+    // Incident Lifecycle Status Mutation
     async function updateIncidentStatus(incidentId, newStatus) {
       try {
         const resp = await fetch(`/api/incidents/${incidentId}`, {
@@ -1372,10 +2227,10 @@
       }
     }
 
-    // Human Approval UX Handler
+    // Remediation Approval Handlers
     async function handleActionApproval(incidentId, actionId, actionTitle, status) {
       const notes = prompt(`Confirm ${status} intent for "${actionTitle}":\n(Optional notes for audit trail)`);
-      if (notes === null) return; // User cancelled
+      if (notes === null) return;
 
       try {
         const resp = await fetch(`/api/incidents/${incidentId}/actions/${actionId}/approval`, {
@@ -1391,9 +2246,7 @@
         if (resp.ok) {
           const result = await resp.json();
           const idx = incidents.findIndex(i => i.incident_id === incidentId);
-          if (idx !== -1 && result.incident) {
-            incidents[idx] = result.incident;
-          }
+          if (idx !== -1 && result.incident) incidents[idx] = result.incident;
           renderIncidentDetail(incidentId);
         } else {
           alert("Approval intent failed to record.");
@@ -1403,7 +2256,7 @@
       }
     }
 
-    // Controlled Remediation Execution UX Handler
+    // Remediation Execution Handler
     async function handleExecuteRemediation(incidentId, actionId, actionTitle) {
       const btn = document.getElementById(`btn-exec-${actionId}`);
       if (btn) {
@@ -1421,9 +2274,7 @@
         const result = await resp.json();
         if (resp.ok) {
           const idx = incidents.findIndex(i => i.incident_id === incidentId);
-          if (idx !== -1 && result.incident) {
-            incidents[idx] = result.incident;
-          }
+          if (idx !== -1 && result.incident) incidents[idx] = result.incident;
           await loadDashboardData();
           renderIncidentDetail(incidentId);
         } else {
@@ -1432,7 +2283,6 @@
           renderIncidentDetail(incidentId);
         }
       } catch (err) {
-        console.error("Remediation execution error:", err);
         alert("Remediation request error: " + err.message);
         if (btn) {
           btn.disabled = false;
@@ -1441,11 +2291,11 @@
       }
     }
 
-    // Seed Realistic Demo Scenario
-    document.getElementById('btn-seed-demo').addEventListener('click', async () => {
+    // Seed Demo Scenario (Multi-vector test fixture)
+    document.getElementById('btn-seed-demo')?.addEventListener('click', async () => {
       const btn = document.getElementById('btn-seed-demo');
       btn.disabled = true;
-      btn.innerText = "⏳ Ingesting Telemetry...";
+      btn.innerText = "⏳ Ingesting Test Fixture...";
 
       try {
         const victimResId = "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Compute/virtualMachines/vm-worker-01";
@@ -1582,7 +2432,7 @@
           })
         });
 
-        // 4. Ingest Cost Anomaly Event (Correlating with network egress)
+        // 4. Ingest Cost Anomaly Event
         const evalDate = new Date(Date.now() - 86400000).toISOString().substring(0, 10);
         await fetch('/detect/cost-anomaly', {
           method: 'POST',
@@ -1621,9 +2471,9 @@
         }
 
         await loadDashboardData();
-        alert("Demo scenario successfully ingested, correlated, and triaged by AI!");
+        switchTab('incidents');
+        alert("Demo scenario test fixture successfully ingested, correlated, and triaged!");
       } catch (err) {
-        console.error("Demo seed error:", err);
         alert("Failed to seed demo scenario: " + err.message);
       } finally {
         btn.disabled = false;
@@ -1632,14 +2482,14 @@
     });
 
     // Refresh & Search Listeners
-    document.getElementById('btn-refresh').addEventListener('click', loadDashboardData);
-    document.getElementById('search-query').addEventListener('input', renderIncidentList);
-    document.getElementById('filter-severity').addEventListener('change', renderIncidentList);
-    document.getElementById('filter-status').addEventListener('change', renderIncidentList);
+    document.getElementById('btn-refresh')?.addEventListener('click', loadDashboardData);
+    document.getElementById('search-query')?.addEventListener('input', renderIncidentList);
+    document.getElementById('filter-severity')?.addEventListener('change', renderIncidentList);
+    document.getElementById('filter-status')?.addEventListener('change', renderIncidentList);
 
-    // Initial Load & Polling (every 10s)
+    // Initial Load & Polling (every 15s)
     loadDashboardData();
-    autoRefreshTimer = setInterval(loadDashboardData, 10000);
+    autoRefreshTimer = setInterval(loadDashboardData, 15000);
 
     function escapeHtml(str) {
       if (!str) return '';

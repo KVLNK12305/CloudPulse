@@ -130,8 +130,8 @@ class CostManagementClient:
                     {"type": "Dimension", "name": "ResourceGroupName"},
                     {"type": "Dimension", "name": "ServiceName"},
                     {"type": "Dimension", "name": "MeterCategory"},
-                    {"type": "Dimension", "name": "MeterSubCategory"},
-                    {"type": "Dimension", "name": "MeterName"},
+                    {"type": "Dimension", "name": "MeterSubcategory"},
+                    {"type": "Dimension", "name": "Meter"},
                 ],
             },
         }
@@ -373,8 +373,8 @@ class CostManagementClient:
             raw_res_group = get_val(row, "ResourceGroupName", "ResourceGroup") or default_rg
             raw_service_name = str(get_val(row, "ServiceName") or "UnknownService").strip()
             raw_meter_cat = str(get_val(row, "MeterCategory") or "").strip()
-            raw_meter_subcat = get_val(row, "MeterSubCategory")
-            raw_meter_name = str(get_val(row, "MeterName") or "StandardMeter").strip()
+            raw_meter_subcat = get_val(row, "MeterSubCategory", "MeterSubcategory")
+            raw_meter_name = str(get_val(row, "MeterName", "Meter") or "StandardMeter").strip()
             raw_quantity = get_val(row, "UsageQuantity", "Quantity")
             try:
                 quantity_float = float(raw_quantity) if raw_quantity is not None else 0.0
@@ -484,3 +484,147 @@ class CostManagementClient:
             logger.warning("Cost Management validation encountered non-RBAC error on scope %s: %s", scope, str(ex))
             # If error is not 403, might be empty data or network, but RBAC was not denied
             return False
+
+    def get_cost_summary(
+        self,
+        scope: str,
+        lookback_days: int = 14,
+        default_sub_id: str = "",
+        cost_type: str = "ActualCost",
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Aggregate historical cost records into structured summary data suitable
+        for the FinOps operator dashboard.
+        """
+        cache_key = f"{scope.lower()}:{lookback_days}:{cost_type.lower()}"
+        now_ts = time.time()
+        if not force_refresh and hasattr(self, "_summary_cache"):
+            cached_data, cached_ts = self._summary_cache.get(cache_key, (None, 0.0))
+            if cached_data and (now_ts - cached_ts) < 60.0:
+                logger.info("Returning cached Cost Management summary (age: %.1fs)", now_ts - cached_ts)
+                return cached_data
+
+        records = self.get_historical_cost(
+            scope=scope,
+            lookback_days=lookback_days,
+            default_sub_id=default_sub_id,
+            cost_type=cost_type,
+        )
+
+        today = datetime.now(timezone.utc).date()
+        start_date = (today - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+        end_date = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        if not records:
+            return {
+                "has_data": False,
+                "scope": scope,
+                "currency": "USD",
+                "period": {
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "latest_usage_date": None,
+                    "billing_latency_notice": f"No billing records found for window [{start_date} to {end_date}]. Azure Cost Management typically reconciles closed daily billing with 24–48h latency.",
+                },
+                "summary": {
+                    "total_cost": 0.0,
+                    "total_records": 0,
+                    "resource_count": 0,
+                },
+                "by_resource": [],
+                "by_category": {},
+                "by_service": {},
+                "top_cost_drivers": [],
+                "message": "No billing data available for selected period",
+            }
+
+        currency = records[0].currency if records else "USD"
+        total_cost = round(sum(r.actual_cost for r in records), 4)
+
+        # Determine latest closed usage date
+        dates = [r.timestamp for r in records if r.timestamp]
+        latest_usage_date = max(dates) if dates else end_date
+
+        # Group by resource
+        res_map: Dict[str, Dict[str, Any]] = {}
+        cat_map: Dict[str, float] = {}
+        svc_map: Dict[str, float] = {}
+
+        for r in records:
+            rid = (r.resource_id or "").lower()
+            if rid not in res_map:
+                res_map[rid] = {
+                    "resource_id": r.resource_id,
+                    "resource_name": r.resource_name,
+                    "resource_type": r.resource_type,
+                    "resource_group": r.resource_group,
+                    "cost_category": r.cost_category,
+                    "service_name": r.service_name,
+                    "total_cost": 0.0,
+                    "currency": r.currency,
+                    "meters": [],
+                    "latest_usage_date": r.timestamp,
+                }
+            res_entry = res_map[rid]
+            res_entry["total_cost"] = round(res_entry["total_cost"] + r.actual_cost, 4)
+            if r.timestamp and r.timestamp > res_entry["latest_usage_date"]:
+                res_entry["latest_usage_date"] = r.timestamp
+            res_entry["meters"].append({
+                "meter_name": r.meter_name,
+                "cost": r.actual_cost,
+                "quantity": r.usage_quantity,
+                "unit": r.usage_unit,
+                "date": r.timestamp,
+            })
+
+            # Category
+            c = r.cost_category or "Other"
+            cat_map[c] = round(cat_map.get(c, 0.0) + r.actual_cost, 4)
+
+            # Service
+            s = r.service_name or "Other"
+            svc_map[s] = round(svc_map.get(s, 0.0) + r.actual_cost, 4)
+
+        by_resource = list(res_map.values())
+        by_resource.sort(key=lambda x: x["total_cost"], reverse=True)
+
+        top_drivers = [
+            {
+                "resource_name": item["resource_name"],
+                "resource_type": item["resource_type"],
+                "cost_category": item["cost_category"],
+                "total_cost": item["total_cost"],
+                "currency": item["currency"],
+                "percentage_of_total": round((item["total_cost"] / total_cost * 100), 1) if total_cost > 0 else 0.0,
+            }
+            for item in by_resource[:10]
+        ]
+
+        summary = {
+            "has_data": True,
+            "scope": scope,
+            "currency": currency,
+            "period": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "latest_usage_date": latest_usage_date,
+                "billing_latency_notice": f"Azure Cost Management data reflects closed daily billing through {latest_usage_date}. Today's in-flight consumption is subject to 24–48h reconciliation latency.",
+            },
+            "summary": {
+                "total_cost": total_cost,
+                "total_records": len(records),
+                "resource_count": len(by_resource),
+            },
+            "by_resource": by_resource,
+            "by_category": cat_map,
+            "by_service": svc_map,
+            "top_cost_drivers": top_drivers,
+            "message": None,
+        }
+
+        if not hasattr(self, "_summary_cache"):
+            self._summary_cache = {}
+        self._summary_cache[cache_key] = (summary, time.time())
+        return summary
+

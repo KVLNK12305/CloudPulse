@@ -7,6 +7,15 @@ import urllib.error
 from azure.core.exceptions import HttpResponseError, ClientAuthenticationError
 from azure.identity import DefaultAzureCredential
 
+try:
+    from azure.mgmt.resourcegraph import ResourceGraphClient as SdkClient
+    from azure.mgmt.resourcegraph.models import QueryRequest
+    _HAS_ARG_SDK = True
+except ImportError:
+    SdkClient = None  # type: ignore
+    QueryRequest = None  # type: ignore
+    _HAS_ARG_SDK = False
+
 logger = logging.getLogger("cloudpulse.telemetry.resource_graph")
 
 
@@ -62,11 +71,13 @@ Resources
                 else:
                     self._credential = DefaultAzureCredential()
 
-            try:
-                from azure.mgmt.resourcegraph import ResourceGraphClient as SdkClient
-                self._client = SdkClient(self._credential)
-            except (ImportError, Exception) as ex:
-                logger.debug("azure-mgmt-resourcegraph SDK not available, using ARM REST API: %s", str(ex))
+            if _HAS_ARG_SDK and SdkClient is not None:
+                try:
+                    self._client = SdkClient(self._credential)
+                except Exception as ex:
+                    logger.debug("azure-mgmt-resourcegraph initialization deferred, using ARM REST API: %s", str(ex))
+                    self._client = None
+            else:
                 self._client = None
 
     def query(self, kql: str, subscriptions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
@@ -86,9 +97,8 @@ Resources
         logger.info("Executing Azure Resource Graph query (subscriptions: %s)", subscriptions)
 
         # 1. Try SDK if available
-        if self._client is not None:
+        if self._client is not None and QueryRequest is not None:
             try:
-                from azure.mgmt.resourcegraph.models import QueryRequest
                 query_request = QueryRequest(
                     query=kql,
                     subscriptions=subscriptions,
@@ -287,3 +297,34 @@ Resources
             "subnets": subnets,
             "raw": raw_resources,
         }
+
+    def get_resource_inventory(
+        self,
+        subscription_id: Optional[str] = None,
+        resource_group: Optional[str] = None,
+        resource_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Query Azure Resource Graph for live inventory of all provisioned cloud resources.
+        Supports filtering by subscription, resource group, and resource type.
+        """
+        clauses = ["Resources"]
+        if subscription_id:
+            cleaned_sub = subscription_id.replace("'", "")
+            clauses.append(f"| where subscriptionId =~ '{cleaned_sub}'")
+        if resource_group:
+            cleaned_rg = resource_group.replace("'", "")
+            clauses.append(f"| where resourceGroup =~ '{cleaned_rg}'")
+        if resource_type:
+            cleaned_type = resource_type.replace("'", "")
+            clauses.append(f"| where type =~ '{cleaned_type}'")
+
+        clauses.append(
+            "| project id, name, type, location, resourceGroup, subscriptionId, sku, tags, provisioningState=properties.provisioningState, kind"
+        )
+        clauses.append("| order by tolower(name) asc")
+        kql = "\n".join(clauses)
+
+        subs = [subscription_id] if subscription_id else None
+        return self.query(kql, subscriptions=subs)
+

@@ -50,6 +50,14 @@ from telemetry.cost_management import (
 from telemetry.log_analytics import LogAnalyticsClient, LogAnalyticsQueryError
 from telemetry.network_flow import NetworkFlowAdapter, InMemoryBaselineStore
 from telemetry.resource_graph import ResourceGraphClient, ResourceGraphQueryError
+from telemetry.monitor_metrics import (
+    AzureMonitorMetricsClient,
+    AzureMonitorMetricsError,
+    AzureMonitorMetricsAuthenticationError,
+    AzureMonitorMetricsPermissionError,
+    AzureMonitorMetricsNotFoundError,
+    AzureMonitorMetricsBadRequestError,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,14 +66,18 @@ logging.basicConfig(
 logger = logging.getLogger("cloudpulse.detection_worker")
 
 
+_DEFAULT_CLIENT = object()
+
+
 def create_app(
     db_repo: Optional[DatabaseRepository] = None,
-    log_client: Optional[LogAnalyticsClient] = None,
-    arg_client: Optional[ResourceGraphClient] = None,
-    cost_client: Optional[CostManagementClient] = None,
+    log_client: Any = _DEFAULT_CLIENT,
+    arg_client: Any = _DEFAULT_CLIENT,
+    cost_client: Any = _DEFAULT_CLIENT,
     cost_store: Optional[CostBaselineStore] = None,
     ai_client: Optional[AzureAIClient] = None,
     remediation_svc: Optional[RemediationService] = None,
+    metrics_client: Any = _DEFAULT_CLIENT,
 ) -> Flask:
     """
     Application factory for the CloudPulse Detection Worker.
@@ -100,7 +112,7 @@ def create_app(
                 repository = InMemoryDatabase()
 
     # Initialize Log Analytics client
-    if log_client is not None:
+    if log_client is not _DEFAULT_CLIENT:
         telemetry_client = log_client
     else:
         try:
@@ -110,7 +122,7 @@ def create_app(
             telemetry_client = None
 
     # Initialize Resource Graph client
-    if arg_client is not None:
+    if arg_client is not _DEFAULT_CLIENT:
         graph_client = arg_client
     else:
         try:
@@ -120,7 +132,7 @@ def create_app(
             graph_client = None
 
     # Initialize Cost Management client
-    if cost_client is not None:
+    if cost_client is not _DEFAULT_CLIENT:
         cost_telemetry_client = cost_client
     else:
         try:
@@ -128,6 +140,16 @@ def create_app(
         except Exception as e:
             logger.warning("Default CostManagementClient initialization deferred: %s", str(e))
             cost_telemetry_client = None
+
+    # Initialize Azure Monitor Metrics client
+    if metrics_client is not _DEFAULT_CLIENT:
+        monitor_metrics = metrics_client
+    else:
+        try:
+            monitor_metrics = AzureMonitorMetricsClient()
+        except Exception as e:
+            logger.warning("Default AzureMonitorMetricsClient initialization deferred: %s", str(e))
+            monitor_metrics = None
 
     # Initialize Cost Baseline Store
     finops_baseline_store = cost_store if cost_store is not None else InMemoryCostBaselineStore()
@@ -598,6 +620,604 @@ def create_app(
         if not finding:
             return jsonify({"error": "Finding not found", "finding_id": finding_id}), 404
         return jsonify(finding.model_dump()), 200
+
+    # --- Azure Estate, Resource Inventory & FinOps APIs ---
+    @app.route("/api/resources", methods=["GET"])
+    def get_resources_inventory():
+        """
+        Query Azure Resource Graph for live inventory of all provisioned cloud resources.
+        Enriches each resource with:
+          - findings_count & max_severity (from CloudPulse repository)
+          - known cost from Cost Management
+          - metrics indicator (from Azure Monitor client)
+        """
+        if not graph_client:
+            return jsonify({
+                "status": "error",
+                "message": "ResourceGraphClient is not configured",
+                "resources": [],
+            }), 503
+
+        search_q = (request.args.get("search") or "").strip().lower()
+        type_filter = (request.args.get("type") or "").strip()
+        rg_filter = request.args.get("resource_group")
+        sub_filter = request.args.get("subscription_id") or config.AZURE_SUBSCRIPTION_ID
+
+        try:
+            raw_resources = graph_client.get_resource_inventory(
+                subscription_id=sub_filter,
+                resource_group=rg_filter,
+                resource_type=type_filter,
+            )
+
+            # Get cost summary if available to enrich resource cost
+            cost_by_res = {}
+            currency = "USD"
+            if cost_telemetry_client:
+                try:
+                    c_sum = cost_telemetry_client.get_cost_summary(
+                        scope=f"/subscriptions/{sub_filter}",
+                        lookback_days=14,
+                        default_sub_id=sub_filter,
+                    )
+                    if isinstance(c_sum, dict):
+                        curr_val = c_sum.get("currency")
+                        if isinstance(curr_val, str):
+                            currency = curr_val
+                        by_res = c_sum.get("by_resource")
+                        if isinstance(by_res, list):
+                            for r_cost in by_res:
+                                if isinstance(r_cost, dict):
+                                    cid = (r_cost.get("resource_id") or "")
+                                    if isinstance(cid, str):
+                                        cost_by_res[cid.lower()] = r_cost
+                except Exception as c_err:
+                    logger.debug("Non-fatal: could not enrich resource cost: %s", str(c_err))
+
+            enriched_list = []
+            for r in raw_resources:
+                rid = r.get("id") or ""
+                canon_id = rid.lower()
+                rname = r.get("name") or ""
+                rtype = (r.get("type") or "").lower()
+
+                if search_q and search_q not in rname.lower() and search_q not in canon_id and search_q not in rtype:
+                    continue
+
+                # Query CloudPulse repository for security findings on this resource
+                findings = repository.get_findings_by_resource_id(rid)
+                if not findings and canon_id != rid:
+                    findings = repository.get_findings_by_resource_id(canon_id)
+
+                max_sev = None
+                sev_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+                for f in findings:
+                    f_val = f.severity.value.upper()
+                    if max_sev is None or sev_order.get(f_val, 0) > sev_order.get(max_sev, 0):
+                        max_sev = f_val
+
+                # Cost enrichment
+                cost_info = cost_by_res.get(canon_id)
+                actual_cost = None
+                res_currency = currency
+                cost_cat = None
+                if isinstance(cost_info, dict):
+                    raw_cost = cost_info.get("total_cost")
+                    if isinstance(raw_cost, (int, float)):
+                        actual_cost = float(raw_cost)
+                    raw_curr = cost_info.get("currency")
+                    if isinstance(raw_curr, str):
+                        res_currency = raw_curr
+                    raw_cat = cost_info.get("cost_category")
+                    if isinstance(raw_cat, str):
+                        cost_cat = raw_cat
+
+                # Metrics support indicator
+                metrics_supported = False
+                if monitor_metrics and hasattr(monitor_metrics, "get_supported_metrics"):
+                    try:
+                        supp = monitor_metrics.get_supported_metrics(rtype)
+                        metrics_supported = bool(supp)
+                    except Exception:
+                        metrics_supported = False
+
+                enriched_list.append({
+                    "id": rid,
+                    "name": rname,
+                    "type": r.get("type"),
+                    "location": r.get("location"),
+                    "resource_group": r.get("resourceGroup"),
+                    "subscription_id": r.get("subscriptionId"),
+                    "provisioning_state": r.get("provisioningState") or "Succeeded",
+                    "sku": r.get("sku") if isinstance(r.get("sku"), (dict, str, int, float, list)) else None,
+                    "tags": r.get("tags") if isinstance(r.get("tags"), (dict, list)) else None,
+                    "actual_cost": actual_cost,
+                    "currency": res_currency,
+                    "cost_category": cost_cat,
+                    "findings_count": len(findings),
+                    "max_severity": max_sev,
+                    "finding_ids": [f.finding_id for f in findings],
+                    "metrics_supported": metrics_supported,
+                    "source": "Azure Resource Graph",
+                })
+
+            return jsonify({
+                "status": "success",
+                "count": len(enriched_list),
+                "source": "Azure Resource Graph",
+                "subscription_id": sub_filter,
+                "resources": enriched_list,
+            }), 200
+
+        except ResourceGraphQueryError as rge:
+            logger.error("Resource Graph query error: %s", str(rge))
+            return jsonify({
+                "status": "error",
+                "message": str(rge),
+                "resources": [],
+            }), 502
+        except Exception as ex:
+            logger.exception("Unexpected error in /api/resources: %s", str(ex))
+            return jsonify({
+                "status": "error",
+                "message": str(ex),
+                "resources": [],
+            }), 500
+
+    @app.route("/api/resources/<path:resource_id>/metrics", methods=["GET"])
+    def get_resource_metrics_endpoint(resource_id: str):
+        """
+        Query Azure Monitor runtime metrics for a specific resource.
+        Accepts optional query param: timespan (default: 'PT1H').
+        Read-only endpoint.
+        """
+        clean_id = resource_id.strip()
+        if not clean_id.startswith("/"):
+            clean_id = "/" + clean_id
+
+        if not monitor_metrics:
+            return jsonify({
+                "status": "error",
+                "resource_id": clean_id,
+                "message": "AzureMonitorMetricsClient is not configured",
+                "metrics": {},
+                "source": "Azure Monitor",
+            }), 503
+
+        timespan = request.args.get("timespan", "PT1H")
+
+        try:
+            metrics_result = monitor_metrics.get_resource_metrics(
+                resource_id=clean_id,
+                timespan=timespan,
+            )
+            return jsonify(metrics_result), 200
+        except AzureMonitorMetricsAuthenticationError as ae:
+            logger.error("Azure Monitor auth failed: %s", str(ae))
+            return jsonify({
+                "status": "error",
+                "resource_id": clean_id,
+                "message": str(ae),
+                "metrics": {},
+                "source": "Azure Monitor",
+            }), 401
+        except AzureMonitorMetricsPermissionError as pe:
+            logger.error("Azure Monitor permissions denied: %s", str(pe))
+            return jsonify({
+                "status": "error",
+                "resource_id": clean_id,
+                "message": str(pe),
+                "metrics": {},
+                "source": "Azure Monitor",
+            }), 403
+        except AzureMonitorMetricsNotFoundError as ne:
+            return jsonify({
+                "status": "error",
+                "resource_id": clean_id,
+                "message": str(ne),
+                "metrics": {},
+                "source": "Azure Monitor",
+            }), 404
+        except Exception as ex:
+            logger.exception("Unexpected error querying metrics for %s: %s", clean_id, str(ex))
+            return jsonify({
+                "status": "error",
+                "resource_id": clean_id,
+                "message": str(ex),
+                "metrics": {},
+                "source": "Azure Monitor",
+            }), 500
+
+    @app.route("/api/resources/<path:resource_id>/cost", methods=["GET"])
+    def get_resource_cost_endpoint(resource_id: str):
+        """
+        Retrieve cost telemetry and baseline observations for a specific resource.
+        """
+        clean_id = resource_id.strip()
+        if not clean_id.startswith("/"):
+            clean_id = "/" + clean_id
+
+        sub_id = config.AZURE_SUBSCRIPTION_ID
+        if not cost_telemetry_client:
+            return jsonify({
+                "status": "error",
+                "resource_id": clean_id,
+                "message": "CostManagementClient is not configured",
+            }), 503
+
+        try:
+            summary = cost_telemetry_client.get_cost_summary(
+                scope=f"/subscriptions/{sub_id}",
+                lookback_days=int(request.args.get("lookback_days", 14)),
+                default_sub_id=sub_id,
+            )
+            matching = [
+                r for r in summary.get("by_resource", [])
+                if (r.get("resource_id") or "").lower() == clean_id.lower()
+            ]
+
+            obs_list = finops_baseline_store.list_observations()
+            matching_obs = [
+                o for o in obs_list
+                if (o.resource_id or "").lower() == clean_id.lower()
+            ]
+
+            if not matching:
+                return jsonify({
+                    "status": "success",
+                    "resource_id": clean_id,
+                    "has_billing_data": False,
+                    "message": "No billing data available for selected period",
+                    "total_cost": None,
+                    "currency": summary.get("currency", "USD"),
+                    "period": summary.get("period"),
+                    "meters": [],
+                    "observations": [o.model_dump() for o in matching_obs],
+                    "source": "Azure Cost Management",
+                }), 200
+
+            res_cost = matching[0]
+            return jsonify({
+                "status": "success",
+                "resource_id": clean_id,
+                "has_billing_data": True,
+                "total_cost": res_cost.get("total_cost", 0.0),
+                "currency": res_cost.get("currency", "USD"),
+                "cost_category": res_cost.get("cost_category"),
+                "period": summary.get("period"),
+                "meters": res_cost.get("meters", []),
+                "observations": [o.model_dump() for o in matching_obs],
+                "source": "Azure Cost Management",
+            }), 200
+        except Exception as ex:
+            logger.exception("Error querying cost for resource %s: %s", clean_id, str(ex))
+            return jsonify({
+                "status": "error",
+                "resource_id": clean_id,
+                "message": str(ex),
+            }), 500
+
+    @app.route("/api/resources/<path:resource_id>", methods=["GET"])
+    def get_resource_detail(resource_id: str):
+        """
+        Deep resource detail aggregator combining:
+          - Resource inventory metadata (Azure Resource Graph)
+          - Runtime metrics (Azure Monitor)
+          - Actual billing data & meters (Azure Cost Management)
+          - Security findings (CloudPulse Detection Engine)
+          - FinOps baseline observations (CloudPulse FinOps Engine)
+          - Associated incidents (CloudPulse PostgreSQL state)
+        """
+        clean_id = resource_id.strip()
+        if not clean_id.startswith("/"):
+            clean_id = "/" + clean_id
+
+        if not AzureMonitorMetricsClient.validate_resource_id(clean_id):
+            return jsonify({
+                "status": "error",
+                "message": f"Invalid Azure Resource ID format: '{clean_id}'",
+            }), 400
+
+        sub_id = config.AZURE_SUBSCRIPTION_ID
+
+        # 1. Fetch resource metadata from ARG
+        resource_meta = None
+        if graph_client:
+            try:
+                escaped_id = clean_id.replace("'", "")
+                kql = f"Resources | where id =~ '{escaped_id}' | project id, name, type, location, resourceGroup, subscriptionId, sku, tags, provisioningState=properties.provisioningState, kind"
+                res_records = graph_client.query(kql)
+                if res_records:
+                    resource_meta = res_records[0]
+            except Exception as e:
+                logger.warning("Could not fetch resource metadata from ARG for %s: %s", clean_id, str(e))
+
+        if not resource_meta:
+            res_type = AzureMonitorMetricsClient.extract_resource_type(clean_id) or "unknown"
+            rname = clean_id.split("/")[-1]
+            rg_part = ""
+            if "/resourcegroups/" in clean_id.lower():
+                rg_part = clean_id.lower().split("/resourcegroups/")[1].split("/")[0]
+            resource_meta = {
+                "id": clean_id,
+                "name": rname,
+                "type": res_type,
+                "location": "unknown",
+                "resourceGroup": rg_part,
+                "subscriptionId": sub_id,
+                "provisioningState": "Unknown",
+                "sku": None,
+                "tags": {},
+            }
+
+        # 2. Fetch metrics
+        metrics_data = {
+            "supported": False,
+            "metrics_available": False,
+            "message": "Azure Monitor client not configured",
+            "metrics": {},
+            "source": "Azure Monitor",
+        }
+        if monitor_metrics:
+            try:
+                metrics_data = monitor_metrics.get_resource_metrics(clean_id)
+            except Exception as e:
+                metrics_data = {
+                    "supported": False,
+                    "metrics_available": False,
+                    "message": f"Metrics query failed: {str(e)}",
+                    "metrics": {},
+                    "source": "Azure Monitor",
+                }
+
+        # 3. Fetch cost data
+        cost_data = {
+            "has_billing_data": False,
+            "total_cost": None,
+            "currency": "USD",
+            "cost_category": None,
+            "meters": [],
+            "message": "No billing data available for selected period",
+            "source": "Azure Cost Management",
+        }
+        if cost_telemetry_client:
+            try:
+                c_sum = cost_telemetry_client.get_cost_summary(
+                    scope=f"/subscriptions/{sub_id}",
+                    lookback_days=14,
+                    default_sub_id=sub_id,
+                )
+                matching = [
+                    r for r in c_sum.get("by_resource", [])
+                    if (r.get("resource_id") or "").lower() == clean_id.lower()
+                ]
+                if matching:
+                    res_cost = matching[0]
+                    cost_data = {
+                        "has_billing_data": True,
+                        "total_cost": res_cost.get("total_cost", 0.0),
+                        "currency": res_cost.get("currency", "USD"),
+                        "cost_category": res_cost.get("cost_category"),
+                        "meters": res_cost.get("meters", []),
+                        "period": c_sum.get("period"),
+                        "message": None,
+                        "source": "Azure Cost Management",
+                    }
+                else:
+                    cost_data["period"] = c_sum.get("period")
+            except Exception as e:
+                logger.warning("Cost lookup error for %s: %s", clean_id, str(e))
+
+        # 4. Fetch security findings from repository
+        findings = repository.get_findings_by_resource_id(clean_id)
+        if not findings and clean_id.lower() != clean_id:
+            findings = repository.get_findings_by_resource_id(clean_id.lower())
+
+        max_sev = None
+        sev_order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+        for f in findings:
+            f_val = f.severity.value.upper()
+            if max_sev is None or sev_order.get(f_val, 0) > sev_order.get(max_sev, 0):
+                max_sev = f_val
+
+        # 5. Fetch FinOps baseline observations
+        obs_list = finops_baseline_store.list_observations()
+        res_obs = [
+            o.model_dump() for o in obs_list
+            if (o.resource_id or "").lower() == clean_id.lower()
+        ]
+        is_anomalous = any(
+            (o.get("deviation_ratio") or 0.0) >= 1.5 or (o.get("percentage_increase") or 0.0) >= 50.0
+            for o in res_obs
+        )
+
+        # 6. Fetch linked incidents
+        all_incidents = repository.list_incidents(limit=200)
+        linked_incidents = [
+            inc.model_dump() for inc in all_incidents
+            if (inc.resource.id or "").lower() == clean_id.lower()
+        ]
+
+        return jsonify({
+            "status": "success",
+            "resource_id": clean_id,
+            "resource": resource_meta,
+            "cost": cost_data,
+            "utilization": metrics_data,
+            "security": {
+                "findings_count": len(findings),
+                "max_severity": max_sev,
+                "findings": [f.model_dump() for f in findings],
+                "source": "CloudPulse Detection Engine",
+            },
+            "finops": {
+                "is_anomalous": is_anomalous,
+                "observations": res_obs,
+                "source": "CloudPulse FinOps Engine",
+            },
+            "incidents": {
+                "count": len(linked_incidents),
+                "incidents": linked_incidents,
+                "source": "CloudPulse PostgreSQL state",
+            },
+            "source_attributions": {
+                "resource": "Azure Resource Graph",
+                "cost": "Azure Cost Management",
+                "utilization": "Azure Monitor",
+                "security": "CloudPulse Detection Engine",
+                "finops": "CloudPulse FinOps Engine",
+                "incidents": "CloudPulse PostgreSQL state",
+            },
+        }), 200
+
+    @app.route("/api/finops/costs", methods=["GET"])
+    def get_finops_costs_summary():
+        """
+        Dashboard API for Azure Cost Management data.
+        Returns total cost, cost by resource, cost by category, top drivers,
+        and billing latency notice.
+        """
+        scope = request.args.get("scope") or f"/subscriptions/{config.AZURE_SUBSCRIPTION_ID}"
+        lookback_days = int(request.args.get("lookback_days", 14))
+
+        if not cost_telemetry_client:
+            return jsonify({
+                "status": "error",
+                "message": "CostManagementClient is not configured",
+            }), 503
+
+        try:
+            summary = cost_telemetry_client.get_cost_summary(
+                scope=scope,
+                lookback_days=lookback_days,
+                default_sub_id=config.AZURE_SUBSCRIPTION_ID,
+            )
+
+            observations = finops_baseline_store.list_observations()
+            anomalies = [
+                obs.model_dump() for obs in observations
+                if (obs.deviation_ratio or 0.0) >= 1.5 or (obs.percentage_increase or 0.0) >= 50.0
+            ]
+
+            summary["anomalies"] = anomalies
+            summary["source"] = "Azure Cost Management"
+            return jsonify(summary), 200
+
+        except CostManagementRbacError as rbe:
+            return jsonify({
+                "status": "error",
+                "error_type": "RBAC_FORBIDDEN",
+                "message": str(rbe),
+            }), 403
+        except CostManagementRateLimitError as rle:
+            return jsonify({
+                "status": "error",
+                "error_type": "RATE_LIMIT_EXCEEDED",
+                "message": str(rle),
+            }), 429
+        except Exception as ex:
+            logger.exception("Error in /api/finops/costs: %s", str(ex))
+            return jsonify({
+                "status": "error",
+                "message": str(ex),
+            }), 500
+
+    @app.route("/api/estate/overview", methods=["GET"])
+    def get_estate_overview():
+        """
+        High-level executive overview of the Azure estate combining
+        real Azure Resource Graph inventory, Cost Management totals,
+        and CloudPulse SecOps & FinOps telemetry.
+        """
+        sub_id = config.AZURE_SUBSCRIPTION_ID
+        rg = "cloudpulse-rg"
+
+        # 1. Resource counts via ARG
+        res_count = 0
+        by_type_counts = {}
+        if graph_client:
+            try:
+                inv = graph_client.get_resource_inventory(subscription_id=sub_id, resource_group=rg)
+                res_count = len(inv)
+                for r in inv:
+                    t = r.get("type", "unknown")
+                    by_type_counts[t] = by_type_counts.get(t, 0) + 1
+            except Exception as e:
+                logger.warning("Could not query ARG for estate overview: %s", str(e))
+
+        # 2. Cost summary via Cost Management
+        cost_total = 0.0
+        currency = "USD"
+        by_category = {}
+        latency_notice = "Cost data unavailable"
+        latest_usage_date = None
+        has_cost_data = False
+        if cost_telemetry_client:
+            try:
+                c_sum = cost_telemetry_client.get_cost_summary(
+                    scope=f"/subscriptions/{sub_id}",
+                    lookback_days=14,
+                    default_sub_id=sub_id,
+                )
+                cost_total = c_sum.get("summary", {}).get("total_cost", 0.0)
+                currency = c_sum.get("currency", "USD")
+                by_category = c_sum.get("by_category", {})
+                latency_notice = c_sum.get("period", {}).get("billing_latency_notice")
+                latest_usage_date = c_sum.get("period", {}).get("latest_usage_date")
+                has_cost_data = c_sum.get("has_data", False)
+            except Exception as e:
+                logger.warning("Could not query Cost Management for estate overview: %s", str(e))
+
+        # 3. Incident & Security state via Database
+        incidents = repository.list_incidents(limit=200)
+        by_sev = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        correlated_count = 0
+        for inc in incidents:
+            s_val = inc.severity.value.upper()
+            by_sev[s_val] = by_sev.get(s_val, 0) + 1
+            if inc.cost_impact:
+                correlated_count += 1
+
+        observations = finops_baseline_store.list_observations()
+        anomalies_count = len([
+            obs for obs in observations
+            if (obs.deviation_ratio or 0.0) >= 1.5 or (obs.percentage_increase or 0.0) >= 50.0
+        ])
+
+        return jsonify({
+            "status": "success",
+            "subscription_id": sub_id,
+            "resource_group": rg,
+            "environment": config.ENVIRONMENT,
+            "resources": {
+                "total": res_count,
+                "by_type": by_type_counts,
+                "source": "Azure Resource Graph",
+            },
+            "costs": {
+                "has_data": has_cost_data,
+                "total_cost": cost_total,
+                "currency": currency,
+                "by_category": by_category,
+                "latest_usage_date": latest_usage_date,
+                "billing_latency_notice": latency_notice,
+                "source": "Azure Cost Management",
+            },
+            "security": {
+                "total_incidents": len(incidents),
+                "by_severity": by_sev,
+                "correlated_incidents": correlated_count,
+                "cost_anomalies_count": anomalies_count,
+                "source": "CloudPulse PostgreSQL state",
+            },
+            "source_attributions": {
+                "inventory": "Azure Resource Graph",
+                "costs": "Azure Cost Management",
+                "metrics": "Azure Monitor",
+                "security_findings": "CloudPulse Detection Engine",
+                "incidents": "CloudPulse PostgreSQL state",
+            },
+        }), 200
 
     # --- Dashboard UI Serving ---
     @app.route("/dashboard", methods=["GET"])
