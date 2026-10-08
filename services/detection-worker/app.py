@@ -19,8 +19,22 @@ from models.ai_context import (
     HumanApprovalIntent,
     ApprovalStatus,
 )
+from models.remediation import (
+    RemediationActionType,
+    RemediationStatus,
+    RemediationRecord,
+    RemediationContainer,
+)
 from services.ai_triage_service import AITriageService
 from services.azure_ai_client import AzureAIClient
+from services.azure_network_client import AzureNetworkClient
+from services.remediation_service import (
+    RemediationService,
+    RemediationError,
+    RemediationUnapprovedError,
+    RemediationPreconditionError,
+    RemediationVerificationError,
+)
 from services.detection_service import DetectionService
 from services.incident_orchestrator import IncidentOrchestrator
 from telemetry.cost_baseline import CostBaselineStore, InMemoryCostBaselineStore
@@ -51,6 +65,7 @@ def create_app(
     cost_client: Optional[CostManagementClient] = None,
     cost_store: Optional[CostBaselineStore] = None,
     ai_client: Optional[AzureAIClient] = None,
+    remediation_svc: Optional[RemediationService] = None,
 ) -> Flask:
     """
     Application factory for the CloudPulse Detection Worker.
@@ -126,6 +141,10 @@ def create_app(
     ai_triage_service = AITriageService(
         db_repo=repository,
         ai_client=ai_client,
+    )
+
+    remediation_service = remediation_svc or RemediationService(
+        db_repo=repository,
     )
 
     @app.route("/health", methods=["GET"])
@@ -707,34 +726,132 @@ def create_app(
         notes = data.get("notes")
         now_iso = datetime.now(timezone.utc).isoformat()
 
-        approval_record = {
-            "action_id": action_id,
-            "status": decision,
-            "operator": operator,
-            "notes": notes,
-            "timestamp": now_iso,
-            "remediation_executed": False,
-        }
-        incident.remediation = approval_record
-        incident.updated_at = now_iso
-        incident.timeline.append({
-            "timestamp": now_iso,
-            "event": f"ACTION_{decision}",
-            "operation": "OPERATOR_APPROVAL_INTENT",
-            "caller": operator,
-            "correlation_metadata": {
+        # If the action_id is not yet registered in the remediation container,
+        # check whether it corresponds to a valid AI triage recommended action.
+        # If so, register it as PROPOSED before forwarding to record_approval.
+        # This keeps the service layer strict (rejects unknown action IDs)
+        # while preserving the AI triage → approval workflow.
+        container = RemediationContainer.from_incident_remediation(incident.remediation)
+        if action_id not in container.actions:
+            # Verify the action_id exists in AI triage recommended_actions
+            ai_action_valid = False
+            if incident.ai_analysis and isinstance(incident.ai_analysis, dict):
+                for act in incident.ai_analysis.get("recommended_actions", []):
+                    if act.get("id") == action_id:
+                        ai_action_valid = True
+                        break
+
+            if not ai_action_valid:
+                return jsonify({
+                    "status": "error",
+                    "message": f"Action '{action_id}' is not registered on incident '{incident_id}' "
+                               f"and does not correspond to any AI triage recommendation."
+                }), 400
+
+            # Auto-register as PROPOSED from validated AI recommendation
+            act_type = RemediationActionType.DISABLE_PUBLIC_INGRESS
+            if any(
+                repository.get_finding(fid) and repository.get_finding(fid).finding_type == "SUSPICIOUS_OUTBOUND_ACTIVITY"
+                for fid in incident.findings
+            ):
+                act_type = RemediationActionType.ISOLATE_WORKLOAD
+
+            remediation_service.propose_action_from_recommendation(
+                incident=incident,
+                action_id=action_id,
+                action_type=act_type,
+            )
+
+        try:
+            record = remediation_service.record_approval(
+                incident_id=incident_id,
+                action_id=action_id,
+                decision=decision,
+                operator=operator,
+                notes=notes,
+            )
+            refreshed = repository.get_incident(incident_id) or incident
+            approval_resp = {
                 "action_id": action_id,
-                "decision": decision,
+                "status": decision,
+                "operator": operator,
                 "notes": notes,
-                "autonomous_remediation_blocked": True,
-            },
-        })
-        repository.save_incident(incident)
+                "timestamp": now_iso,
+                "remediation_executed": False,
+                "remediation_id": record.remediation_id,
+            }
+            return jsonify({
+                "status": "success",
+                "incident_id": incident_id,
+                "approval": approval_resp,
+                "incident": refreshed.model_dump(),
+            }), 200
+        except RemediationError as re:
+            return jsonify({"status": "error", "message": str(re)}), 400
+        except Exception as e:
+            logger.exception("Error recording approval for incident %s: %s", incident_id, str(e))
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    @app.route("/api/incidents/<incident_id>/remediation/execute", methods=["POST"])
+    def execute_remediation_endpoint(incident_id: str):
+        incident = repository.get_incident(incident_id)
+        if not incident:
+            return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+
+        data = request.get_json(silent=True) or {}
+        action_id = data.get("action_id")
+
+        if not action_id:
+            container = RemediationContainer.from_incident_remediation(incident.remediation)
+            for aid, rec in container.actions.items():
+                if rec.status == RemediationStatus.APPROVED:
+                    action_id = aid
+                    break
+
+        if not action_id:
+            return jsonify({
+                "status": "error",
+                "message": "No action_id specified and no action currently in APPROVED status on this incident."
+            }), 400
+
+        try:
+            record = remediation_service.execute_remediation(
+                incident_id=incident_id,
+                action_id=action_id,
+            )
+            refreshed = repository.get_incident(incident_id) or incident
+            http_status = 200
+            if record.status == RemediationStatus.PRECONDITION_FAILED:
+                http_status = 400
+            elif record.status in (RemediationStatus.VERIFICATION_FAILED, RemediationStatus.FAILED):
+                http_status = 500
+
+            return jsonify({
+                "status": "success" if record.status == RemediationStatus.VERIFIED else "failed",
+                "incident_id": incident_id,
+                "remediation": record.model_dump(),
+                "incident": refreshed.model_dump(),
+            }), http_status
+
+        except RemediationUnapprovedError as ue:
+            return jsonify({"status": "error", "error_type": "UNAPPROVED_ACTION", "message": str(ue)}), 400
+        except RemediationPreconditionError as pe:
+            return jsonify({"status": "error", "error_type": "PRECONDITION_FAILED", "message": str(pe)}), 400
+        except RemediationError as re:
+            return jsonify({"status": "error", "error_type": "REMEDIATION_ERROR", "message": str(re)}), 400
+        except Exception as ex:
+            logger.exception("Unexpected error executing remediation: %s", str(ex))
+            return jsonify({"status": "error", "message": str(ex)}), 500
+
+    @app.route("/api/incidents/<incident_id>/remediation", methods=["GET"])
+    def get_incident_remediation(incident_id: str):
+        incident = repository.get_incident(incident_id)
+        if not incident:
+            return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+        container = RemediationContainer.from_incident_remediation(incident.remediation)
         return jsonify({
-            "status": "success",
             "incident_id": incident_id,
-            "approval": approval_record,
-            "incident": incident.model_dump(),
+            "actions": {aid: r.model_dump() for aid, r in container.actions.items()},
         }), 200
 
     @app.route("/api/dashboard/summary", methods=["GET"])

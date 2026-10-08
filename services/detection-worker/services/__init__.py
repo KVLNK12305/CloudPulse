@@ -14,6 +14,20 @@ from .azure_ai_client import (
     AzureAIUnavailableError,
 )
 from .ai_triage_service import AITriageService
+from .azure_network_client import (
+    AzureNetworkClient,
+    AzureNetworkError,
+    AzureNetworkAuthError,
+    AzureNetworkNotFoundError,
+    AzureNetworkConflictError,
+)
+from .remediation_service import (
+    RemediationService,
+    RemediationError,
+    RemediationUnapprovedError,
+    RemediationPreconditionError,
+    RemediationVerificationError,
+)
 
 __all__ = [
     "IncidentOrchestrator",
@@ -28,5 +42,15 @@ __all__ = [
     "AzureAITimeoutError",
     "AzureAIUnavailableError",
     "AITriageService",
+    "AzureNetworkClient",
+    "AzureNetworkError",
+    "AzureNetworkAuthError",
+    "AzureNetworkNotFoundError",
+    "AzureNetworkConflictError",
+    "RemediationService",
+    "RemediationError",
+    "RemediationUnapprovedError",
+    "RemediationPreconditionError",
+    "RemediationVerificationError",
 ]
 

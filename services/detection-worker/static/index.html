@@ -317,6 +317,11 @@
     .badge-status.INVESTIGATING { background: rgba(234, 179, 8, 0.15); color: #fef08a; }
     .badge-status.RESOLVED { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
     .badge-status.CLOSED { background: rgba(100, 116, 139, 0.15); color: #94a3b8; }
+    .badge-status.APPROVED { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-status.VERIFIED { background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; }
+    .badge-status.EXECUTING, .badge-status.VERIFYING { background: rgba(234, 179, 8, 0.15); color: #fde047; border: 1px solid rgba(234, 179, 8, 0.3); }
+    .badge-status.FAILED, .badge-status.PRECONDITION_FAILED, .badge-status.VERIFICATION_FAILED { background: rgba(244, 63, 94, 0.15); color: #fda4af; border: 1px solid rgba(244, 63, 94, 0.3); }
+    .badge-status.NEEDS_REVIEW { background: rgba(249, 115, 22, 0.15); color: #fdba74; border: 1px solid rgba(249, 115, 22, 0.3); }
 
     .item-id {
       font-family: var(--font-mono);
@@ -613,6 +618,30 @@
     }
     .btn-reject:hover { background: rgba(244, 63, 94, 0.25); }
 
+    .btn-execute {
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.2), rgba(59, 130, 246, 0.25));
+      border: 1px solid rgba(6, 182, 212, 0.6);
+      color: var(--accent-cyan);
+      padding: 6px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.74rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+    .btn-execute:hover {
+      background: linear-gradient(135deg, rgba(6, 182, 212, 0.35), rgba(59, 130, 246, 0.45));
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
+    }
+    .btn-execute:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
     /* Interactive Timeline */
     .timeline-card {
       background: var(--bg-surface);
@@ -663,6 +692,11 @@
     }
     .timeline-node.AI_TRIAGE_PERFORMED::before { background: var(--accent-purple); }
     .timeline-node.SECURITY_FINOPS_CORRELATED::before { background: #10b981; }
+    .timeline-node.REMEDIATION_APPROVED::before { background: #3b82f6; }
+    .timeline-node.REMEDIATION_EXECUTED::before { background: #06b6d4; }
+    .timeline-node.REMEDIATION_VERIFIED::before { background: #10b981; box-shadow: 0 0 10px rgba(16, 185, 129, 0.6); }
+    .timeline-node.REMEDIATION_FAILED::before,
+    .timeline-node.REMEDIATION_PRECONDITION_FAILED::before { background: #f43f5e; box-shadow: 0 0 8px rgba(244, 63, 94, 0.6); }
 
     .node-header {
       display: flex;
@@ -1129,27 +1163,86 @@
             </div>
           </div>
 
-          <!-- Recommended Operator Actions & Approval Gateway -->
+          <!-- Recommended Operator Actions & Controlled Remediation Pipeline -->
           <div class="ai-block">
-            <div class="ai-block-title" style="color: #34d399;">Recommended Operator Actions (Human Approval Required)</div>
+            <div class="ai-block-title" style="color: #34d399;">Recommended Operator Actions & Controlled Remediation</div>
             <div class="actions-list">
               ${(aiAnalysis.recommended_actions || []).map(act => {
-                const approval = inc.remediation && inc.remediation.action_id === act.id ? inc.remediation : null;
+                const remActions = (inc.remediation && inc.remediation.actions) ? inc.remediation.actions : {};
+                const rem = remActions[act.id] || (inc.remediation && inc.remediation.action_id === act.id ? inc.remediation : null);
+                const status = rem ? rem.status : 'PROPOSED';
+                const isVerified = status === 'VERIFIED';
+                const isApproved = status === 'APPROVED';
+                const isExecuting = status === 'EXECUTING' || status === 'VERIFYING';
+                const isFailed = status === 'FAILED' || status === 'PRECONDITION_FAILED' || status === 'VERIFICATION_FAILED' || status === 'NEEDS_REVIEW';
+                const isRejected = status === 'REJECTED';
+
+                let targetDisplay = '';
+                if (rem && (rem.target_rule_name || rem.target_resource_id)) {
+                  const targetResShort = (rem.target_resource_id || '').split('/').pop();
+                  targetDisplay = rem.target_rule_name ? `${rem.target_rule_name} (${targetResShort})` : targetResShort;
+                }
+
                 return `
-                  <div class="action-item">
+                  <div class="action-item" id="action-item-${act.id}">
                     <div class="action-info">
                       <div class="action-title">
                         <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-cyan);">${act.id}</span>
                         <span>${escapeHtml(act.title)}</span>
                         <span class="badge-status ${act.category === 'CONTAINMENT' ? 'OPEN' : 'INVESTIGATING'}">${act.category}</span>
                         <span class="node-tag">Risk: ${act.risk}</span>
+                        <span class="badge-status ${status}">${status}</span>
                       </div>
                       <div class="action-desc">${escapeHtml(act.description)}</div>
+
+                      ${targetDisplay ? `
+                        <div style="margin-top: 6px; font-size: 0.72rem; font-family: var(--font-mono); color: var(--text-dim);">
+                          Target Evidence: <span style="color: var(--accent-cyan);">${escapeHtml(targetDisplay)}</span>
+                        </div>
+                      ` : ''}
+
+                      ${rem && rem.approval && rem.approval.operator ? `
+                        <div style="margin-top: 4px; font-size: 0.72rem; color: var(--text-muted);">
+                          Authorized by: <span style="color: var(--text-main); font-family: var(--font-mono);">${escapeHtml(rem.approval.operator)}</span>
+                          ${rem.approval.timestamp ? ` at ${escapeHtml(rem.approval.timestamp.slice(11, 19))}` : ''}
+                          ${rem.approval.notes ? ` — <em>"${escapeHtml(rem.approval.notes)}"</em>` : ''}
+                        </div>
+                      ` : ''}
+
+                      ${rem && rem.execution && rem.execution.executed_at ? `
+                        <div style="margin-top: 4px; font-size: 0.72rem; color: var(--text-muted);">
+                          Mutation executed at <span style="font-family: var(--font-mono);">${escapeHtml(rem.execution.executed_at.slice(11, 19))}</span> (${rem.execution.duration_ms || 0}ms)
+                        </div>
+                      ` : ''}
+
+                      ${isVerified && rem && rem.verification ? `
+                        <div style="margin-top: 6px; font-size: 0.74rem; color: #34d399; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+                          <span>✓ Azure Live State Verified:</span>
+                          <span style="font-family: var(--font-mono); background: rgba(16, 185, 129, 0.15); padding: 1px 6px; border-radius: 4px;">${escapeHtml(rem.verification.verified_state || 'COMPLIANT')}</span>
+                          <span style="font-size: 0.68rem; color: var(--text-dim);">${escapeHtml(rem.verification.verified_at || '')}</span>
+                        </div>
+                      ` : ''}
+
+                      ${isFailed && rem && rem.error_message ? `
+                        <div style="margin-top: 6px; font-size: 0.74rem; color: #f43f5e; font-weight: 600;">
+                          ⚠ ${escapeHtml(rem.error_message)}
+                        </div>
+                      ` : ''}
                     </div>
 
-                    <div class="action-controls">
-                      ${approval ? `
-                        <span class="badge-status ${approval.status}">${approval.status} by ${escapeHtml(approval.operator || 'operator')}</span>
+                    <div class="action-controls" id="action-controls-${act.id}">
+                      ${isVerified ? `
+                        <span class="badge-status VERIFIED">VERIFIED</span>
+                      ` : isExecuting ? `
+                        <span class="badge-status EXECUTING">Executing & Verifying...</span>
+                      ` : isApproved ? `
+                        <button class="btn-execute" id="btn-exec-${act.id}" onclick="handleExecuteRemediation('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}')">
+                          ⚡ Execute Remediation
+                        </button>
+                      ` : isRejected ? `
+                        <span class="badge-status CLOSED">REJECTED</span>
+                      ` : isFailed ? `
+                        <button class="btn-approve" onclick="handleActionApproval('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}', 'APPROVED')">Re-Authorize</button>
                       ` : `
                         <button class="btn-approve" onclick="handleActionApproval('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}', 'APPROVED')">Authorize</button>
                         <button class="btn-reject" onclick="handleActionApproval('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}', 'REJECTED')">Reject</button>
@@ -1307,6 +1400,44 @@
         }
       } catch (e) {
         console.error("Approval error:", e);
+      }
+    }
+
+    // Controlled Remediation Execution UX Handler
+    async function handleExecuteRemediation(incidentId, actionId, actionTitle) {
+      const btn = document.getElementById(`btn-exec-${actionId}`);
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = "⏳ Mutating & Verifying ARM State...";
+      }
+
+      try {
+        const resp = await fetch(`/api/incidents/${incidentId}/remediation/execute`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action_id: actionId })
+        });
+
+        const result = await resp.json();
+        if (resp.ok) {
+          const idx = incidents.findIndex(i => i.incident_id === incidentId);
+          if (idx !== -1 && result.incident) {
+            incidents[idx] = result.incident;
+          }
+          await loadDashboardData();
+          renderIncidentDetail(incidentId);
+        } else {
+          alert(`Remediation execution failed: ${result.error || result.message || 'Unknown error'}`);
+          await loadDashboardData();
+          renderIncidentDetail(incidentId);
+        }
+      } catch (err) {
+        console.error("Remediation execution error:", err);
+        alert("Remediation request error: " + err.message);
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = "⚡ Execute Remediation";
+        }
       }
     }
 

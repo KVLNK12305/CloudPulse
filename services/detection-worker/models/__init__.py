@@ -34,6 +34,16 @@ from .ai_context import (
     HumanApprovalIntent,
     ApprovalStatus,
 )
+from .remediation import (
+    RemediationActionType,
+    RemediationStatus,
+    RemediationRecord,
+    RemediationContainer,
+    ApprovalDetails,
+    ExecutionDetails,
+    VerificationDetails,
+    generate_deterministic_remediation_id,
+)
 
 __all__ = [
     "Finding",
@@ -68,4 +78,12 @@ __all__ = [
     "ActionRiskLevel",
     "HumanApprovalIntent",
     "ApprovalStatus",
+    "RemediationActionType",
+    "RemediationStatus",
+    "RemediationRecord",
+    "RemediationContainer",
+    "ApprovalDetails",
+    "ExecutionDetails",
+    "VerificationDetails",
+    "generate_deterministic_remediation_id",
 ]
