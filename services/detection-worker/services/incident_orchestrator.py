@@ -1,10 +1,15 @@
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 
 from database.postgres import DatabaseRepository
 from models.finding import Finding, SeverityLevel
 from models.incident import Incident, IncidentStatus, generate_deterministic_incident_id
+from services.correlation_service import (
+    SecurityFinopsCorrelator,
+    CorrelationStrength,
+    CorrelationResult,
+)
 
 logger = logging.getLogger("cloudpulse.services.incident_orchestrator")
 
@@ -15,8 +20,14 @@ class IncidentOrchestrator:
     Ensures stable deterministic incident IDs, evidence preservation, and deduplication.
     """
 
-    def __init__(self, db_repo: DatabaseRepository):
+    def __init__(
+        self,
+        db_repo: DatabaseRepository,
+        correlator: Optional[SecurityFinopsCorrelator] = None,
+    ):
         self._db = db_repo
+        self._correlator = correlator or SecurityFinopsCorrelator()
+
 
     def process_finding(self, finding: Finding) -> Incident:
         """
@@ -28,6 +39,9 @@ class IncidentOrchestrator:
             resource_id=finding.resource.id,
             caller=finding.identity.caller,
         )
+
+        # Ensure finding is persisted in repository so subsequent correlation can retrieve it
+        self._db.save_finding(finding)
 
         existing_incident = self._db.get_incident(incident_id)
 
@@ -70,6 +84,24 @@ class IncidentOrchestrator:
                 existing_incident.severity = SeverityLevel.CRITICAL
             elif self._severity_rank(finding.severity.value) > self._severity_rank(existing_incident.severity.value):
                 existing_incident.severity = finding.severity
+
+            # Security ↔ FinOps Correlation
+            incident_findings: List[Finding] = []
+            for fid in existing_incident.findings:
+                if fid == finding.finding_id:
+                    incident_findings.append(finding)
+                else:
+                    f = self._db.get_finding(fid)
+                    if f:
+                        incident_findings.append(f)
+
+            corr_result = self._correlator.correlate_incident_findings(incident_findings)
+            if corr_result and corr_result.strength in (
+                CorrelationStrength.MODERATE,
+                CorrelationStrength.STRONG,
+                CorrelationStrength.VERY_STRONG,
+            ):
+                self._apply_correlation(existing_incident, corr_result, now_iso)
 
             existing_incident.updated_at = now_iso
             self._db.save_incident(existing_incident)
@@ -116,7 +148,83 @@ class IncidentOrchestrator:
         self._db.link_incident_finding(incident_id, finding.finding_id)
         return new_incident
 
+    def _apply_correlation(
+        self,
+        incident: Incident,
+        result: CorrelationResult,
+        now_iso: str,
+    ) -> None:
+        """
+        Populate cost_impact, update title, escalate severity, and record
+        SECURITY_FINOPS_CORRELATED timeline entry per docs/correlation/security-finops.md.
+        """
+        # 1. Populate cost_impact
+        incident.cost_impact = {
+            "correlated_finding_id": result.finops_finding_id,
+            "cost_category": result.cost_category,
+            "actual_cost": result.actual_cost,
+            "baseline_cost": result.baseline_cost,
+            "deviation_absolute": result.deviation_absolute,
+            "percentage_increase": result.percentage_increase,
+            "currency": result.currency,
+            "evaluation_date": result.evaluation_date,
+            "correlation_strength": result.strength.value,
+            "correlation_confidence": result.confidence,
+            "correlation_type": result.correlation_type,
+            "correlated_security_finding_id": result.security_finding_id,
+        }
+
+        # 2. Update title if correlated title generated
+        if result.correlated_title:
+            incident.title = result.correlated_title
+
+        # 3. Escalate severity if higher
+        if result.escalate_severity:
+            if self._severity_rank(result.escalate_severity.value) > self._severity_rank(incident.severity.value):
+                incident.severity = result.escalate_severity
+
+        # 4. Append or update SECURITY_FINOPS_CORRELATED timeline entry
+        res_name = incident.resource.name
+        eval_date = (result.evaluation_date or "").replace("-", "")
+        corr_timeline_entry = {
+            "timestamp": now_iso,
+            "event": "SECURITY_FINOPS_CORRELATED",
+            "finding_id": result.finops_finding_id,
+            "operation": "CORRELATION_ENGINE_EVALUATION",
+            "activity_log_event_id": f"corr-ev-{res_name}-{eval_date}",
+            "caller": "cloudpulse-correlation-engine",
+            "correlation_metadata": {
+                "security_finding_id": result.security_finding_id,
+                "finops_finding_id": result.finops_finding_id,
+                "correlation_strength": result.strength.value,
+                "correlation_confidence": result.confidence,
+                "correlation_type": result.correlation_type,
+                "affected_resource": incident.resource.id,
+                "financial_delta": result.deviation_absolute,
+                "currency": result.currency,
+                "reason": result.reason,
+            },
+        }
+
+        # Deduplication: check if correlation entry for this finding pair already exists
+        found_idx = None
+        for idx, entry in enumerate(incident.timeline):
+            if entry.get("event") == "SECURITY_FINOPS_CORRELATED":
+                meta = entry.get("correlation_metadata", {})
+                if (
+                    meta.get("security_finding_id") == result.security_finding_id
+                    and meta.get("finops_finding_id") == result.finops_finding_id
+                ):
+                    found_idx = idx
+                    break
+
+        if found_idx is not None:
+            incident.timeline[found_idx] = corr_timeline_entry
+        else:
+            incident.timeline.append(corr_timeline_entry)
+
     @staticmethod
     def _severity_rank(sev: str) -> int:
         ranks = {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}
         return ranks.get(sev.upper(), 1)
+
