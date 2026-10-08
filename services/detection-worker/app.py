@@ -1,6 +1,8 @@
 import logging
-from typing import Optional
-from flask import Flask, jsonify, request
+import os
+from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
+from flask import Flask, jsonify, request, send_from_directory
 
 from config import config
 from database.postgres import PostgresDatabase, InMemoryDatabase, DatabaseRepository
@@ -10,6 +12,15 @@ from detectors.suspicious_outbound_activity import SuspiciousOutboundActivityDet
 from detectors.cost_anomaly import CostAnomalyDetector
 from models.cost_record import CostRecord, CostObservation
 from models.network_flow import WorkloadBaseline
+from models.incident import Incident, IncidentStatus
+from models.ai_context import (
+    AISafeIncidentContext,
+    AITriageAnalysis,
+    HumanApprovalIntent,
+    ApprovalStatus,
+)
+from services.ai_triage_service import AITriageService
+from services.azure_ai_client import AzureAIClient
 from services.detection_service import DetectionService
 from services.incident_orchestrator import IncidentOrchestrator
 from telemetry.cost_baseline import CostBaselineStore, InMemoryCostBaselineStore
@@ -39,6 +50,7 @@ def create_app(
     arg_client: Optional[ResourceGraphClient] = None,
     cost_client: Optional[CostManagementClient] = None,
     cost_store: Optional[CostBaselineStore] = None,
+    ai_client: Optional[AzureAIClient] = None,
 ) -> Flask:
     """
     Application factory for the CloudPulse Detection Worker.
@@ -109,6 +121,11 @@ def create_app(
         db_repo=repository,
         log_client=telemetry_client,
         detector=ResourceCreationDetector(),
+    )
+
+    ai_triage_service = AITriageService(
+        db_repo=repository,
+        ai_client=ai_client,
     )
 
     @app.route("/health", methods=["GET"])
@@ -563,21 +580,190 @@ def create_app(
             return jsonify({"error": "Finding not found", "finding_id": finding_id}), 404
         return jsonify(finding.model_dump()), 200
 
+    # --- Dashboard UI Serving ---
+    @app.route("/dashboard", methods=["GET"])
+    def serve_dashboard():
+        static_dir = os.path.join(os.path.dirname(__file__), "static")
+        return send_from_directory(static_dir, "index.html")
+
+    @app.route("/static/<path:filename>", methods=["GET"])
+    def serve_static(filename):
+        static_dir = os.path.join(os.path.dirname(__file__), "static")
+        return send_from_directory(static_dir, filename)
+
+    # --- Incident APIs ---
     @app.route("/incidents", methods=["GET"])
+    @app.route("/api/incidents", methods=["GET"])
     def get_incidents():
         limit = int(request.args.get("limit", 50))
+        severity_filter = request.args.get("severity")
+        status_filter = request.args.get("status")
         incidents = repository.list_incidents(limit=limit)
+        if severity_filter:
+            incidents = [i for i in incidents if i.severity.value.upper() == severity_filter.upper()]
+        if status_filter:
+            incidents = [i for i in incidents if i.status.value.upper() == status_filter.upper()]
         return jsonify({
             "count": len(incidents),
             "incidents": [inc.model_dump() for inc in incidents],
         }), 200
 
     @app.route("/incidents/<incident_id>", methods=["GET"])
+    @app.route("/api/incidents/<incident_id>", methods=["GET"])
     def get_incident_by_id(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
             return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
         return jsonify(incident.model_dump()), 200
+
+    @app.route("/incidents/<incident_id>", methods=["PATCH"])
+    @app.route("/api/incidents/<incident_id>", methods=["PATCH"])
+    def patch_incident(incident_id: str):
+        incident = repository.get_incident(incident_id)
+        if not incident:
+            return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+        data = request.get_json(silent=True) or {}
+        new_status = data.get("status")
+        if new_status:
+            try:
+                incident.status = IncidentStatus(new_status.upper())
+            except ValueError:
+                valid = [s.value for s in IncidentStatus]
+                return jsonify({"error": f"Invalid status '{new_status}'. Valid statuses: {valid}"}), 400
+        now_iso = datetime.now(timezone.utc).isoformat()
+        incident.updated_at = now_iso
+        incident.timeline.append({
+            "timestamp": now_iso,
+            "event": "STATUS_UPDATED",
+            "operation": "OPERATOR_STATUS_MUTATION",
+            "caller": data.get("caller", "operator"),
+            "correlation_metadata": {"new_status": incident.status.value},
+        })
+        repository.save_incident(incident)
+        return jsonify(incident.model_dump()), 200
+
+    @app.route("/api/incidents/<incident_id>/findings", methods=["GET"])
+    def get_incident_findings(incident_id: str):
+        incident = repository.get_incident(incident_id)
+        if not incident:
+            return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+        findings = []
+        for fid in incident.findings:
+            f = repository.get_finding(fid)
+            if f:
+                findings.append(f)
+        return jsonify({
+            "incident_id": incident_id,
+            "count": len(findings),
+            "findings": [f.model_dump() for f in findings],
+        }), 200
+
+    @app.route("/api/incidents/<incident_id>/timeline", methods=["GET"])
+    def get_incident_timeline(incident_id: str):
+        incident = repository.get_incident(incident_id)
+        if not incident:
+            return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+        return jsonify({
+            "incident_id": incident_id,
+            "count": len(incident.timeline),
+            "timeline": incident.timeline,
+        }), 200
+
+    @app.route("/api/incidents/<incident_id>/ai-analysis", methods=["GET"])
+    def get_incident_ai_analysis(incident_id: str):
+        incident = repository.get_incident(incident_id)
+        if not incident:
+            return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+        if not incident.ai_analysis:
+            return jsonify({"incident_id": incident_id, "status": "NOT_TRIAGED"}), 404
+        return jsonify(incident.ai_analysis), 200
+
+    @app.route("/api/incidents/<incident_id>/ai-triage", methods=["POST"])
+    def trigger_ai_triage(incident_id: str):
+        incident = repository.get_incident(incident_id)
+        if not incident:
+            return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+        data = request.get_json(silent=True) or {}
+        force_refresh = bool(data.get("force_refresh", False))
+        analysis = ai_triage_service.triage_incident(incident=incident, force_refresh=force_refresh)
+        refreshed_incident = repository.get_incident(incident_id) or incident
+        return jsonify({
+            "status": "success",
+            "incident_id": incident_id,
+            "ai_analysis": analysis.model_dump(),
+            "incident": refreshed_incident.model_dump(),
+        }), 200
+
+    @app.route("/api/incidents/<incident_id>/actions/<action_id>/approval", methods=["POST"])
+    def approve_action(incident_id: str, action_id: str):
+        incident = repository.get_incident(incident_id)
+        if not incident:
+            return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+        data = request.get_json(silent=True) or {}
+        decision = (data.get("status") or "APPROVED").upper()
+        if decision not in ("APPROVED", "REJECTED"):
+            return jsonify({"error": "Invalid approval status. Must be 'APPROVED' or 'REJECTED'"}), 400
+        operator = data.get("operator", "security-operator")
+        notes = data.get("notes")
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        approval_record = {
+            "action_id": action_id,
+            "status": decision,
+            "operator": operator,
+            "notes": notes,
+            "timestamp": now_iso,
+            "remediation_executed": False,
+        }
+        incident.remediation = approval_record
+        incident.updated_at = now_iso
+        incident.timeline.append({
+            "timestamp": now_iso,
+            "event": f"ACTION_{decision}",
+            "operation": "OPERATOR_APPROVAL_INTENT",
+            "caller": operator,
+            "correlation_metadata": {
+                "action_id": action_id,
+                "decision": decision,
+                "notes": notes,
+                "autonomous_remediation_blocked": True,
+            },
+        })
+        repository.save_incident(incident)
+        return jsonify({
+            "status": "success",
+            "incident_id": incident_id,
+            "approval": approval_record,
+            "incident": incident.model_dump(),
+        }), 200
+
+    @app.route("/api/dashboard/summary", methods=["GET"])
+    def get_dashboard_summary():
+        incidents = repository.list_incidents(limit=200)
+        total = len(incidents)
+        by_sev = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+        by_stat = {"OPEN": 0, "INVESTIGATING": 0, "RESOLVED": 0, "CLOSED": 0}
+        correlated_count = 0
+        total_overrun = 0.0
+        triaged_count = 0
+        for inc in incidents:
+            s_val = inc.severity.value.upper()
+            by_sev[s_val] = by_sev.get(s_val, 0) + 1
+            st_val = inc.status.value.upper()
+            by_stat[st_val] = by_stat.get(st_val, 0) + 1
+            if inc.cost_impact:
+                correlated_count += 1
+                total_overrun += float(inc.cost_impact.get("deviation_absolute", 0.0))
+            if inc.ai_analysis and inc.ai_analysis.get("status") == "COMPLETED":
+                triaged_count += 1
+        return jsonify({
+            "total_incidents": total,
+            "by_severity": by_sev,
+            "by_status": by_stat,
+            "correlated_incidents": correlated_count,
+            "total_financial_overrun": round(total_overrun, 2),
+            "triaged_count": triaged_count,
+        }), 200
 
     return app
 

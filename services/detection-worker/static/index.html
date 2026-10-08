@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CloudPulse — Autonomous FinOps & Threat Surface Triage Engine</title>
+  <meta name="description" content="Autonomous Azure FinOps & Threat Surface Triage Engine: Bridging Deterministic Security Detection, Cost Anomalies, and AI Triage.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #0a0d14;
+      --bg-surface: #111622;
+      --bg-surface-elevated: #161d2d;
+      --bg-surface-hover: #1c2538;
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-focus: rgba(56, 189, 248, 0.5);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      
+      --accent-cyan: #06b6d4;
+      --accent-cyan-glow: rgba(6, 182, 212, 0.2);
+      --accent-blue: #3b82f6;
+      --accent-purple: #8b5cf6;
+      
+      --sev-critical: #f43f5e;
+      --sev-critical-bg: rgba(244, 63, 94, 0.12);
+      --sev-high: #f97316;
+      --sev-high-bg: rgba(249, 115, 22, 0.12);
+      --sev-medium: #eab308;
+      --sev-medium-bg: rgba(234, 179, 8, 0.12);
+      --sev-low: #38bdf8;
+      --sev-low-bg: rgba(56, 189, 248, 0.12);
+      
+      --status-open: #f43f5e;
+      --status-investigating: #eab308;
+      --status-resolved: #10b981;
+      --status-closed: #64748b;
+      
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --shadow-card: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      min-height: 100vh;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    /* Top Navigation Bar */
+    .topbar {
+      height: 64px;
+      background: rgba(17, 22, 34, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 28px;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .brand-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #06b6d4, #3b82f6, #8b5cf6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 0 16px var(--accent-cyan-glow);
+    }
+
+    .brand-icon svg { width: 18px; height: 18px; fill: white; }
+    .brand-title { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em; }
+    .brand-badge {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      background: rgba(6, 182, 212, 0.15);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+      font-family: inherit;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #0891b2, #0284c7);
+      color: white;
+      box-shadow: 0 2px 10px rgba(6, 182, 212, 0.25);
+    }
+    .btn-primary:hover { opacity: 0.92; transform: translateY(-1px); }
+
+    .btn-secondary {
+      background: var(--bg-surface-elevated);
+      color: var(--text-muted);
+      border-color: var(--border-subtle);
+    }
+    .btn-secondary:hover { background: var(--bg-surface-hover); color: var(--text-main); }
+
+    .btn-accent {
+      background: rgba(139, 92, 246, 0.15);
+      color: #c084fc;
+      border-color: rgba(139, 92, 246, 0.3);
+    }
+    .btn-accent:hover { background: rgba(139, 92, 246, 0.25); }
+
+    /* Layout */
+    .app-container {
+      max-width: 1600px;
+      margin: 0 auto;
+      padding: 24px 28px;
+    }
+
+    /* KPI Summary Cards Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .kpi-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      box-shadow: var(--shadow-card);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: transparent;
+    }
+    .kpi-card.critical::before { background: var(--sev-critical); }
+    .kpi-card.correlated::before { background: var(--accent-cyan); }
+    .kpi-card.financial::before { background: #10b981; }
+    .kpi-card.ai::before { background: var(--accent-purple); }
+
+    .kpi-label {
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+    }
+
+    .kpi-value {
+      font-size: 1.65rem;
+      font-weight: 700;
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      letter-spacing: -0.02em;
+    }
+
+    .kpi-subtext {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+    }
+
+    /* Main Content Columns: Master / Detail */
+    .main-workspace {
+      display: grid;
+      grid-template-columns: 440px 1fr;
+      gap: 20px;
+      align-items: start;
+    }
+
+    @media (max-width: 1100px) {
+      .main-workspace { grid-template-columns: 1fr; }
+    }
+
+    /* Incident List Panel (Master) */
+    .panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: var(--shadow-card);
+    }
+
+    .panel-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg-surface-elevated);
+    }
+
+    .panel-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .filter-bar {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      gap: 8px;
+      background: rgba(0,0,0,0.15);
+      flex-wrap: wrap;
+    }
+
+    .filter-select, .search-input {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-main);
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 0.75rem;
+      font-family: inherit;
+    }
+    .search-input { flex: 1; }
+
+    .incident-list {
+      max-height: calc(100vh - 280px);
+      overflow-y: auto;
+      divide-y: 1px solid var(--border-subtle);
+    }
+
+    .incident-item {
+      padding: 14px 18px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border-subtle);
+      transition: background 0.15s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .incident-item:hover { background: var(--bg-surface-hover); }
+    .incident-item.active {
+      background: rgba(6, 182, 212, 0.08);
+      border-left: 3px solid var(--accent-cyan);
+    }
+
+    .item-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .badge-sev {
+      font-size: 0.65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: var(--radius-sm);
+      letter-spacing: 0.04em;
+    }
+    .badge-sev.CRITICAL { background: var(--sev-critical-bg); color: var(--sev-critical); border: 1px solid rgba(244, 63, 94, 0.3); }
+    .badge-sev.HIGH { background: var(--sev-high-bg); color: var(--sev-high); border: 1px solid rgba(249, 115, 22, 0.3); }
+    .badge-sev.MEDIUM { background: var(--sev-medium-bg); color: var(--sev-medium); border: 1px solid rgba(234, 179, 8, 0.3); }
+    .badge-sev.LOW { background: var(--sev-low-bg); color: var(--sev-low); border: 1px solid rgba(56, 189, 248, 0.3); }
+
+    .badge-status {
+      font-size: 0.65rem;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+    }
+    .badge-status.OPEN { background: rgba(244, 63, 94, 0.15); color: #fda4af; }
+    .badge-status.INVESTIGATING { background: rgba(234, 179, 8, 0.15); color: #fef08a; }
+    .badge-status.RESOLVED { background: rgba(16, 185, 129, 0.15); color: #6ee7b7; }
+    .badge-status.CLOSED { background: rgba(100, 116, 139, 0.15); color: #94a3b8; }
+
+    .item-id {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--text-dim);
+    }
+
+    .item-title {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-main);
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      line-height: 1.35;
+    }
+
+    .item-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+    }
+
+    .finops-tag {
+      background: rgba(16, 185, 129, 0.1);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 1px 6px;
+      font-weight: 600;
+      font-family: var(--font-mono);
+    }
+
+    /* Incident Detail View (Detail) */
+    .detail-view {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .detail-header-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 22px 26px;
+      box-shadow: var(--shadow-card);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .detail-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .detail-heading {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.3;
+    }
+
+    .detail-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .meta-box {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .meta-label { font-size: 0.68rem; text-transform: uppercase; color: var(--text-dim); font-weight: 600; }
+    .meta-val { font-size: 0.8rem; font-family: var(--font-mono); color: var(--text-main); word-break: break-all; }
+
+    /* Security vs FinOps Correlation Card */
+    .correlation-card {
+      background: linear-gradient(135deg, rgba(17, 22, 34, 0.95), rgba(22, 29, 45, 0.95));
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      box-shadow: var(--shadow-card);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .correlation-card::after {
+      content: '';
+      position: absolute;
+      top: 0; right: 0; width: 140px; height: 140px;
+      background: radial-gradient(circle, rgba(6, 182, 212, 0.15) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .correlation-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .correlation-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+    }
+
+    .corr-stat {
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 10px 14px;
+    }
+    .corr-stat-lbl { font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase; }
+    .corr-stat-val { font-size: 1.15rem; font-weight: 700; font-family: var(--font-mono); color: var(--text-main); }
+    .corr-stat-val.positive { color: #f43f5e; }
+
+    /* AI Assessment Section (Special Spotlight) */
+    .ai-card {
+      background: linear-gradient(135deg, rgba(22, 29, 45, 0.95), rgba(30, 27, 75, 0.4));
+      border: 1px solid rgba(139, 92, 246, 0.35);
+      border-radius: var(--radius-md);
+      padding: 24px;
+      box-shadow: 0 8px 32px -4px rgba(139, 92, 246, 0.15);
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      position: relative;
+    }
+
+    .ai-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+      padding-bottom: 14px;
+    }
+
+    .ai-badge-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .ai-pill {
+      background: linear-gradient(135deg, rgba(139, 92, 246, 0.25), rgba(168, 85, 247, 0.25));
+      border: 1px solid rgba(139, 92, 246, 0.4);
+      color: #c084fc;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ai-block {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .ai-block-title {
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+      color: #a78bfa;
+    }
+    .ai-block-text {
+      font-size: 0.85rem;
+      color: #e2e8f0;
+      line-height: 1.6;
+    }
+
+    .tripartition-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+    }
+
+    .tri-box {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .tri-box.facts { border-left: 3px solid #38bdf8; }
+    .tri-box.inferences { border-left: 3px solid #eab308; }
+    .tri-box.recommendations { border-left: 3px solid #10b981; }
+
+    .tri-list {
+      list-style-type: none;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .tri-list li {
+      font-size: 0.78rem;
+      color: #cbd5e1;
+      position: relative;
+      padding-left: 14px;
+      line-height: 1.45;
+    }
+    .tri-list li::before {
+      content: '•';
+      position: absolute;
+      left: 0;
+      color: var(--text-dim);
+    }
+
+    /* Recommended Actions & Human Approval UX */
+    .actions-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .action-item {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 14px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      transition: border-color 0.15s;
+    }
+    .action-item:hover { border-color: rgba(255, 255, 255, 0.15); }
+
+    .action-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .action-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .action-desc { font-size: 0.76rem; color: var(--text-muted); }
+
+    .action-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .btn-approve {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #34d399;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.74rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-approve:hover { background: rgba(16, 185, 129, 0.25); }
+
+    .btn-reject {
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      color: #fb7185;
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.74rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-reject:hover { background: rgba(244, 63, 94, 0.25); }
+
+    /* Interactive Timeline */
+    .timeline-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      box-shadow: var(--shadow-card);
+    }
+
+    .timeline-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+
+    .timeline-flow {
+      position: relative;
+      padding-left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .timeline-flow::before {
+      content: '';
+      position: absolute;
+      top: 6px; bottom: 6px; left: 6px;
+      width: 2px;
+      background: var(--border-subtle);
+    }
+
+    .timeline-node {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .timeline-node::before {
+      content: '';
+      position: absolute;
+      left: -20px; top: 5px;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent-cyan);
+      box-shadow: 0 0 8px var(--accent-cyan-glow);
+    }
+    .timeline-node.AI_TRIAGE_PERFORMED::before { background: var(--accent-purple); }
+    .timeline-node.SECURITY_FINOPS_CORRELATED::before { background: #10b981; }
+
+    .node-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .node-time { font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-dim); }
+    .node-tag {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: var(--radius-sm);
+      text-transform: uppercase;
+      background: rgba(255,255,255,0.06);
+    }
+    .node-desc { font-size: 0.8rem; color: var(--text-main); }
+
+    /* Findings Evidence Accordion */
+    .findings-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 20px 24px;
+      box-shadow: var(--shadow-card);
+    }
+    .findings-header {
+      font-size: 0.88rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      margin-bottom: 16px;
+    }
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+    }
+    .evidence-item {
+      background: var(--bg-surface-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .evidence-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .evidence-id { font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-cyan); }
+    .evidence-body {
+      background: rgba(0,0,0,0.3);
+      padding: 10px;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: #94a3b8;
+      overflow-x: auto;
+      max-height: 180px;
+    }
+
+    /* Modal / Alert Banner */
+    .empty-state {
+      padding: 60px 20px;
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.88rem;
+    }
+
+    .loader {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: white;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation -->
+  <header class="topbar">
+    <a href="/dashboard" class="brand">
+      <div class="brand-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      </div>
+      <div class="brand-title">CloudPulse</div>
+      <span class="brand-badge">SecOps / FinOps</span>
+    </a>
+
+    <div class="topbar-actions">
+      <button class="btn btn-secondary" id="btn-seed-demo" title="Seed realistic multi-vector attack fixture for live evaluation">
+        <span>⚡ Seed Test Scenario</span>
+      </button>
+      <button class="btn btn-secondary" id="btn-refresh" title="Reload incident telemetry">
+        <span id="refresh-icon">↻</span> Refresh
+      </button>
+      <div style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);" id="clock-display">UTC --:--:--</div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="app-container">
+
+    <!-- KPI Summary Row -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <span class="kpi-label">Active Incidents</span>
+        <span class="kpi-value" id="kpi-total">0</span>
+        <span class="kpi-subtext">Monitored workloads</span>
+      </div>
+      <div class="kpi-card critical">
+        <span class="kpi-label">Critical / High Severity</span>
+        <span class="kpi-value" id="kpi-critical" style="color: var(--sev-critical);">0</span>
+        <span class="kpi-subtext">Requires urgent triage</span>
+      </div>
+      <div class="kpi-card correlated">
+        <span class="kpi-label">Correlated Incidents</span>
+        <span class="kpi-value" id="kpi-correlated" style="color: var(--accent-cyan);">0</span>
+        <span class="kpi-subtext">Security ↔ FinOps Concurrence</span>
+      </div>
+      <div class="kpi-card financial">
+        <span class="kpi-label">Correlated Cost Overrun</span>
+        <span class="kpi-value" id="kpi-cost" style="color: #34d399;">$0.00</span>
+        <span class="kpi-subtext">Cumulative billed delta</span>
+      </div>
+      <div class="kpi-card ai">
+        <span class="kpi-label">AI Triaged</span>
+        <span class="kpi-value" id="kpi-ai" style="color: #c084fc;">0</span>
+        <span class="kpi-subtext">Autonomous synthesis</span>
+      </div>
+    </section>
+
+    <!-- Workspace Grid -->
+    <div class="main-workspace">
+
+      <!-- Master: Incident List Panel -->
+      <aside class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>🛡️ Incident Feed</span>
+            <span class="badge-status OPEN" id="incident-count-badge">0</span>
+          </div>
+        </div>
+
+        <div class="filter-bar">
+          <input type="text" class="search-input" id="search-query" placeholder="Search resource, title, or ID...">
+          <select class="filter-select" id="filter-severity">
+            <option value="">All Severities</option>
+            <option value="CRITICAL">Critical</option>
+            <option value="HIGH">High</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="LOW">Low</option>
+          </select>
+          <select class="filter-select" id="filter-status">
+            <option value="">All Statuses</option>
+            <option value="OPEN">Open</option>
+            <option value="INVESTIGATING">Investigating</option>
+            <option value="RESOLVED">Resolved</option>
+            <option value="CLOSED">Closed</option>
+          </select>
+        </div>
+
+        <div class="incident-list" id="incident-list-container">
+          <div class="empty-state">Loading CloudPulse incidents...</div>
+        </div>
+      </aside>
+
+      <!-- Detail: Incident Inspector View -->
+      <section class="detail-view" id="detail-view-container">
+        <div class="empty-state panel" style="padding: 100px 20px;">
+          Select an incident from the feed to inspect telemetry, FinOps correlation, and AI triage.
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <script>
+    // Global State
+    let incidents = [];
+    let selectedIncidentId = null;
+    let autoRefreshTimer = null;
+
+    // Clock
+    function updateClock() {
+      const now = new Date();
+      document.getElementById('clock-display').innerText = now.toISOString().substring(11, 19) + ' UTC';
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    // Data Loaders
+    async function loadDashboardData() {
+      try {
+        const [incResp, sumResp] = await Promise.all([
+          fetch('/api/incidents?limit=100'),
+          fetch('/api/dashboard/summary')
+        ]);
+
+        if (incResp.ok) {
+          const incData = await incResp.json();
+          incidents = incData.incidents || [];
+          renderIncidentList();
+          
+          // Auto select first incident if none selected
+          if (!selectedIncidentId && incidents.length > 0) {
+            selectIncident(incidents[0].incident_id);
+          } else if (selectedIncidentId) {
+            renderIncidentDetail(selectedIncidentId);
+          }
+        }
+
+        if (sumResp.ok) {
+          const sumData = await sumResp.json();
+          updateKPIs(sumData);
+        }
+      } catch (err) {
+        console.error("Error loading dashboard data:", err);
+      }
+    }
+
+    function updateKPIs(data) {
+      document.getElementById('kpi-total').innerText = data.total_incidents || 0;
+      const critHigh = (data.by_severity?.CRITICAL || 0) + (data.by_severity?.HIGH || 0);
+      document.getElementById('kpi-critical').innerText = critHigh;
+      document.getElementById('kpi-correlated').innerText = data.correlated_incidents || 0;
+      document.getElementById('kpi-cost').innerText = '$' + (data.total_financial_overrun || 0).toFixed(2);
+      document.getElementById('kpi-ai').innerText = data.triaged_count || 0;
+      document.getElementById('incident-count-badge').innerText = incidents.length;
+    }
+
+    // Filter Logic
+    function getFilteredIncidents() {
+      const query = (document.getElementById('search-query').value || '').toLowerCase().trim();
+      const sev = document.getElementById('filter-severity').value;
+      const stat = document.getElementById('filter-status').value;
+
+      return incidents.filter(inc => {
+        if (sev && inc.severity !== sev) return false;
+        if (stat && inc.status !== stat) return false;
+        if (query) {
+          const resName = (inc.resource?.name || '').toLowerCase();
+          const title = (inc.title || '').toLowerCase();
+          const id = (inc.incident_id || '').toLowerCase();
+          return resName.includes(query) || title.includes(query) || id.includes(query);
+        }
+        return true;
+      });
+    }
+
+    function renderIncidentList() {
+      const container = document.getElementById('incident-list-container');
+      const filtered = getFilteredIncidents();
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div class="empty-state">No matching incidents detected.</div>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(inc => {
+        const isActive = inc.incident_id === selectedIncidentId ? 'active' : '';
+        const costTag = inc.cost_impact 
+          ? `<span class="finops-tag">+$${(inc.cost_impact.deviation_absolute || 0).toFixed(2)}</span>` 
+          : '';
+
+        const timeStr = inc.created_at ? inc.created_at.substring(11, 16) + ' UTC' : '';
+
+        return `
+          <div class="incident-item ${isActive}" onclick="selectIncident('${inc.incident_id}')">
+            <div class="item-top">
+              <span class="badge-sev ${inc.severity}">${inc.severity}</span>
+              <span class="badge-status ${inc.status}">${inc.status}</span>
+              <span class="item-id">${inc.incident_id}</span>
+            </div>
+            <div class="item-title">${escapeHtml(inc.title)}</div>
+            <div class="item-footer">
+              <span>${escapeHtml(inc.resource?.name || 'resource')}</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                ${costTag}
+                <span>${timeStr}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function selectIncident(incidentId) {
+      selectedIncidentId = incidentId;
+      renderIncidentList();
+      renderIncidentDetail(incidentId);
+    }
+
+    async function renderIncidentDetail(incidentId) {
+      const container = document.getElementById('detail-view-container');
+      const inc = incidents.find(i => i.incident_id === incidentId);
+
+      if (!inc) {
+        container.innerHTML = '<div class="empty-state panel">Incident not found.</div>';
+        return;
+      }
+
+      // Fetch linked findings for evidence display
+      let findingsList = [];
+      try {
+        const fResp = await fetch(`/api/incidents/${incidentId}/findings`);
+        if (fResp.ok) {
+          const fData = await fResp.json();
+          findingsList = fData.findings || [];
+        }
+      } catch (e) {
+        console.warn("Could not fetch findings details:", e);
+      }
+
+      const costImpact = inc.cost_impact;
+      const aiAnalysis = inc.ai_analysis;
+      const isTriaged = aiAnalysis && aiAnalysis.status === 'COMPLETED';
+
+      // 1. Header HTML
+      let html = `
+        <div class="detail-header-card">
+          <div class="detail-title-row">
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                <span class="badge-sev ${inc.severity}">${inc.severity}</span>
+                <span class="item-id">${inc.incident_id}</span>
+                <span style="font-size: 0.74rem; color: var(--text-dim);">Created: ${inc.created_at}</span>
+              </div>
+              <h1 class="detail-heading">${escapeHtml(inc.title)}</h1>
+            </div>
+
+            <!-- Lifecycle Status Changer -->
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <select class="filter-select" style="font-weight: 600;" onchange="updateIncidentStatus('${inc.incident_id}', this.value)">
+                <option value="OPEN" ${inc.status === 'OPEN' ? 'selected' : ''}>Status: OPEN</option>
+                <option value="INVESTIGATING" ${inc.status === 'INVESTIGATING' ? 'selected' : ''}>Status: INVESTIGATING</option>
+                <option value="RESOLVED" ${inc.status === 'RESOLVED' ? 'selected' : ''}>Status: RESOLVED</option>
+                <option value="CLOSED" ${inc.status === 'CLOSED' ? 'selected' : ''}>Status: CLOSED</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="detail-meta-grid">
+            <div class="meta-box">
+              <span class="meta-label">Resource Name</span>
+              <span class="meta-val" style="color: var(--accent-cyan); font-weight: 600;">${escapeHtml(inc.resource.name)}</span>
+            </div>
+            <div class="meta-box">
+              <span class="meta-label">Resource Type</span>
+              <span class="meta-val">${escapeHtml(inc.resource.type)}</span>
+            </div>
+            <div class="meta-box">
+              <span class="meta-label">Resource Group</span>
+              <span class="meta-val">${escapeHtml(inc.resource.resource_group)}</span>
+            </div>
+            <div class="meta-box">
+              <span class="meta-label">Initiating Caller</span>
+              <span class="meta-val">${escapeHtml(inc.identity?.caller || 'azure-platform')}</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // 2. Security ↔ FinOps Correlation Card
+      if (costImpact) {
+        html += `
+          <div class="correlation-card">
+            <div class="correlation-title">
+              <span>⚡ Security ↔ FinOps Concurrence</span>
+              <span class="brand-badge" style="background: rgba(6,182,212,0.15);">${costImpact.correlation_strength} (${(costImpact.correlation_confidence * 100).toFixed(0)}% Conf)</span>
+            </div>
+            <div class="correlation-grid">
+              <div class="corr-stat">
+                <div class="corr-stat-lbl">Cost Category</div>
+                <div class="corr-stat-val">${escapeHtml(costImpact.cost_category)}</div>
+              </div>
+              <div class="corr-stat">
+                <div class="corr-stat-lbl">Actual Billed Cost</div>
+                <div class="corr-stat-val">$${(costImpact.actual_cost || 0).toFixed(2)}</div>
+              </div>
+              <div class="corr-stat">
+                <div class="corr-stat-lbl">Historical Baseline</div>
+                <div class="corr-stat-val">$${(costImpact.baseline_cost || 0).toFixed(2)}</div>
+              </div>
+              <div class="corr-stat">
+                <div class="corr-stat-lbl">Financial Surge</div>
+                <div class="corr-stat-val positive">+${(costImpact.percentage_increase || 0).toFixed(0)}% (+$${(costImpact.deviation_absolute || 0).toFixed(2)})</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      // 3. AI Assessment Section
+      html += `
+        <div class="ai-card">
+          <div class="ai-header">
+            <div class="ai-badge-group">
+              <div class="ai-pill">
+                <span>🤖 Azure AI Triage</span>
+              </div>
+              ${isTriaged ? `<span style="font-size: 0.72rem; color: #a78bfa; font-family: var(--font-mono);">${aiAnalysis.model_identifier} (${(aiAnalysis.confidence * 100).toFixed(0)}% Conf)</span>` : ''}
+            </div>
+
+            <div>
+              <button class="btn btn-accent" id="btn-trigger-ai" onclick="triggerAITriage('${inc.incident_id}')">
+                <span id="ai-spinner" style="display:none;" class="loader"></span>
+                <span>${isTriaged ? '⚡ Re-Run AI Triage' : '⚡ Generate AI Triage'}</span>
+              </button>
+            </div>
+          </div>
+      `;
+
+      if (isTriaged) {
+        html += `
+          <div class="ai-block">
+            <div class="ai-block-title">Executive Summary</div>
+            <div class="ai-block-text">${escapeHtml(aiAnalysis.summary)}</div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+            <div class="ai-block">
+              <div class="ai-block-title">Risk Assessment</div>
+              <div class="ai-block-text">${escapeHtml(aiAnalysis.risk_assessment)}</div>
+            </div>
+            <div class="ai-block">
+              <div class="ai-block-title">Likely Scenario</div>
+              <div class="ai-block-text">${escapeHtml(aiAnalysis.likely_scenario)}</div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+            <div class="ai-block">
+              <div class="ai-block-title">Security Impact</div>
+              <div class="ai-block-text">${escapeHtml(aiAnalysis.security_impact)}</div>
+            </div>
+            <div class="ai-block">
+              <div class="ai-block-title">Financial Impact</div>
+              <div class="ai-block-text">${escapeHtml(aiAnalysis.financial_impact)}</div>
+            </div>
+          </div>
+
+          <!-- Strict Tripartition Display -->
+          <div class="tripartition-grid">
+            <div class="tri-box facts">
+              <div class="ai-block-title" style="color: #38bdf8;">Verified Facts (Telemetry Grounded)</div>
+              <ul class="tri-list">
+                ${(aiAnalysis.facts || []).map(f => `<li>${escapeHtml(f)}</li>`).join('')}
+              </ul>
+            </div>
+
+            <div class="tri-box inferences">
+              <div class="ai-block-title" style="color: #eab308;">Inferences & Deductions</div>
+              <ul class="tri-list">
+                ${(aiAnalysis.inferences || []).map(inf => `<li>${escapeHtml(inf)}</li>`).join('')}
+              </ul>
+            </div>
+          </div>
+
+          <!-- Recommended Operator Actions & Approval Gateway -->
+          <div class="ai-block">
+            <div class="ai-block-title" style="color: #34d399;">Recommended Operator Actions (Human Approval Required)</div>
+            <div class="actions-list">
+              ${(aiAnalysis.recommended_actions || []).map(act => {
+                const approval = inc.remediation && inc.remediation.action_id === act.id ? inc.remediation : null;
+                return `
+                  <div class="action-item">
+                    <div class="action-info">
+                      <div class="action-title">
+                        <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--accent-cyan);">${act.id}</span>
+                        <span>${escapeHtml(act.title)}</span>
+                        <span class="badge-status ${act.category === 'CONTAINMENT' ? 'OPEN' : 'INVESTIGATING'}">${act.category}</span>
+                        <span class="node-tag">Risk: ${act.risk}</span>
+                      </div>
+                      <div class="action-desc">${escapeHtml(act.description)}</div>
+                    </div>
+
+                    <div class="action-controls">
+                      ${approval ? `
+                        <span class="badge-status ${approval.status}">${approval.status} by ${escapeHtml(approval.operator || 'operator')}</span>
+                      ` : `
+                        <button class="btn-approve" onclick="handleActionApproval('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}', 'APPROVED')">Authorize</button>
+                        <button class="btn-reject" onclick="handleActionApproval('${inc.incident_id}', '${act.id}', '${escapeHtml(act.title)}', 'REJECTED')">Reject</button>
+                      `}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          ${(aiAnalysis.limitations && aiAnalysis.limitations.length > 0) ? `
+            <div class="ai-block" style="background: rgba(0,0,0,0.2); padding: 12px; border-radius: var(--radius-sm);">
+              <div class="ai-block-title" style="color: var(--text-dim);">Explicit Limitations & Unverified Evidence</div>
+              <ul class="tri-list">
+                ${aiAnalysis.limitations.map(lim => `<li>${escapeHtml(lim)}</li>`).join('')}
+              </ul>
+            </div>
+          ` : ''}
+        `;
+      } else {
+        html += `
+          <div class="empty-state" style="padding: 30px;">
+            AI triage analysis has not been performed for this incident yet.<br>
+            Click <strong>Generate AI Triage</strong> above to synthesize the timeline, root cause, and operator actions.
+          </div>
+        `;
+      }
+      html += `</div>`; // Close AI card
+
+      // 4. Incident Timeline Flow
+      html += `
+        <div class="timeline-card">
+          <div class="timeline-title">Chronological Evidence Timeline</div>
+          <div class="timeline-flow">
+            ${(inc.timeline || []).map(entry => `
+              <div class="timeline-node ${entry.event}">
+                <div class="node-header">
+                  <span class="node-time">${entry.timestamp}</span>
+                  <span class="node-tag">${escapeHtml(entry.event)}</span>
+                  ${entry.caller ? `<span style="font-size: 0.68rem; color: var(--text-dim); font-family: var(--font-mono);">${escapeHtml(entry.caller)}</span>` : ''}
+                </div>
+                <div class="node-desc">
+                  ${entry.finding_id ? `<span style="color: var(--accent-cyan); font-family: var(--font-mono);">${entry.finding_id}</span> — ` : ''}
+                  ${entry.operation ? escapeHtml(entry.operation) : (entry.correlation_metadata?.reason ? escapeHtml(entry.correlation_metadata.reason) : 'Recorded lifecycle event')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+
+      // 5. Correlated Findings & Evidence
+      html += `
+        <div class="findings-card">
+          <div class="findings-header">Associated Evidence Records (${findingsList.length})</div>
+          <div class="evidence-grid">
+            ${findingsList.map(f => `
+              <div class="evidence-item">
+                <div class="evidence-top">
+                  <span class="badge-sev ${f.severity}">${f.severity}</span>
+                  <span class="evidence-id">${f.finding_id}</span>
+                </div>
+                <div style="font-size: 0.78rem; font-weight: 600;">${f.finding_type}</div>
+                <div class="evidence-body">${escapeHtml(JSON.stringify(f.evidence, null, 2))}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+
+      container.innerHTML = html;
+    }
+
+    // AI Triage Trigger
+    async function triggerAITriage(incidentId) {
+      const btn = document.getElementById('btn-trigger-ai');
+      const spinner = document.getElementById('ai-spinner');
+      if (btn) btn.disabled = true;
+      if (spinner) spinner.style.display = 'inline-block';
+
+      try {
+        const resp = await fetch(`/api/incidents/${incidentId}/ai-triage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force_refresh: true })
+        });
+
+        if (resp.ok) {
+          const result = await resp.json();
+          // Update local incident cache
+          const idx = incidents.findIndex(i => i.incident_id === incidentId);
+          if (idx !== -1 && result.incident) {
+            incidents[idx] = result.incident;
+          }
+          await loadDashboardData();
+          renderIncidentDetail(incidentId);
+        } else {
+          alert("AI Triage could not be generated. Check server logs.");
+        }
+      } catch (err) {
+        console.error("AI triage error:", err);
+        alert("AI triage request failed: " + err.message);
+      } finally {
+        if (btn) btn.disabled = false;
+        if (spinner) spinner.style.display = 'none';
+      }
+    }
+
+    // Update Status
+    async function updateIncidentStatus(incidentId, newStatus) {
+      try {
+        const resp = await fetch(`/api/incidents/${incidentId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus })
+        });
+        if (resp.ok) {
+          const updated = await resp.json();
+          const idx = incidents.findIndex(i => i.incident_id === incidentId);
+          if (idx !== -1) incidents[idx] = updated;
+          renderIncidentList();
+          renderIncidentDetail(incidentId);
+        }
+      } catch (e) {
+        console.error("Failed to update status:", e);
+      }
+    }
+
+    // Human Approval UX Handler
+    async function handleActionApproval(incidentId, actionId, actionTitle, status) {
+      const notes = prompt(`Confirm ${status} intent for "${actionTitle}":\n(Optional notes for audit trail)`);
+      if (notes === null) return; // User cancelled
+
+      try {
+        const resp = await fetch(`/api/incidents/${incidentId}/actions/${actionId}/approval`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            status: status,
+            notes: notes,
+            operator: 'secops-operator'
+          })
+        });
+
+        if (resp.ok) {
+          const result = await resp.json();
+          const idx = incidents.findIndex(i => i.incident_id === incidentId);
+          if (idx !== -1 && result.incident) {
+            incidents[idx] = result.incident;
+          }
+          renderIncidentDetail(incidentId);
+        } else {
+          alert("Approval intent failed to record.");
+        }
+      } catch (e) {
+        console.error("Approval error:", e);
+      }
+    }
+
+    // Seed Realistic Demo Scenario
+    document.getElementById('btn-seed-demo').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-seed-demo');
+      btn.disabled = true;
+      btn.innerText = "⏳ Ingesting Telemetry...";
+
+      try {
+        const victimResId = "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Compute/virtualMachines/vm-worker-01";
+        
+        // 1. Ingest Resource Creation Event
+        await fetch('/detect/resource-creation', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            events: [{
+              TimeGenerated: new Date(Date.now() - 3600000 * 4).toISOString(),
+              EventDataId: "evt-rc-demo-01",
+              CorrelationId: "corr-demo-01",
+              OperationNameValue: "MICROSOFT.COMPUTE/VIRTUALMACHINES/WRITE",
+              ActivityStatusValue: "Success",
+              ActivitySubstatusValue: "Created",
+              _ResourceId: victimResId,
+              ResourceGroup: "cloudpulse-rg",
+              SubscriptionId: "90b900ea-4273-4b40-a343-091aecfe2911",
+              Caller: "admin@cloudpulse.io",
+              CallerIpAddress: "198.51.100.10",
+              Properties_d: JSON.stringify({ statusCode: "Created", activitySubstatusValue: "Created" })
+            }]
+          })
+        });
+
+        // 2. Ingest Unexpected Public Exposure Event
+        await fetch('/detect/unexpected-public-exposure', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            events: [{
+              TimeGenerated: new Date(Date.now() - 3600000 * 3).toISOString(),
+              EventDataId: "evt-upe-demo-01",
+              OperationNameValue: "MICROSOFT.NETWORK/NETWORKSECURITYGROUPS/SECURITYRULES/WRITE",
+              ActivityStatusValue: "Success",
+              _ResourceId: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkSecurityGroups/nsg-worker",
+              ResourceGroup: "cloudpulse-rg",
+              SubscriptionId: "90b900ea-4273-4b40-a343-091aecfe2911",
+              Caller: "admin@cloudpulse.io",
+              Properties_d: JSON.stringify({
+                securityRule: {
+                  access: "Allow",
+                  direction: "Inbound",
+                  protocol: "Tcp",
+                  destinationPortRange: "22",
+                  sourceAddressPrefix: "*",
+                  targetResourceId: victimResId
+                }
+              })
+            }],
+            topology: {
+              nsgs: {
+                "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkSecurityGroups/nsg-worker": {
+                  id: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkSecurityGroups/nsg-worker",
+                  rules: [{ name: "Allow-SSH-Internet", access: "Allow", direction: "Inbound", protocol: "Tcp", destination_port: "22", source_address: "*" }]
+                }
+              },
+              vms: {
+                [victimResId.toLowerCase()]: {
+                  id: victimResId,
+                  name: "vm-worker-01",
+                  resourceGroup: "cloudpulse-rg",
+                  networkInterfaces: ["/subscriptions/.../nics/nic-worker-01"]
+                }
+              },
+              nics: {
+                "/subscriptions/.../nics/nic-worker-01": {
+                  publicIp: "20.198.51.10",
+                  nsgId: "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Network/networkSecurityGroups/nsg-worker"
+                }
+              }
+            }
+          })
+        });
+
+        // 3. Ingest Suspicious Outbound Egress Event
+        await fetch('/detect/suspicious-outbound', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            events: [{
+              timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+              resource_id: victimResId,
+              destination_ip: "198.51.100.77",
+              destination_port: 443,
+              bytes_sent: 16500000000,
+              bytes_received: 24000,
+              flow_direction: "O",
+              flow_status: "A"
+            }],
+            baselines: {
+              [victimResId]: {
+                mean_hourly_bytes: 50000000,
+                std_hourly_bytes: 10000000,
+                historical_hours: 24,
+                flow_count: 100,
+                known_destination_ips: ["168.63.129.16"]
+              }
+            }
+          })
+        });
+
+        // 4. Ingest Cost Anomaly Event (Correlating with network egress)
+        const evalDate = new Date(Date.now() - 86400000).toISOString().substring(0, 10);
+        await fetch('/detect/cost-anomaly', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            evaluation_date: evalDate,
+            observations: [{
+              resource_id: victimResId,
+              resource_name: "vm-worker-01",
+              resource_group: "cloudpulse-rg",
+              cost_category: "Network/Egress",
+              evaluation_date: evalDate,
+              current_cost: 195.40,
+              baseline_cost: 14.20,
+              deviation_absolute: 181.20,
+              deviation_ratio: 13.76,
+              percentage_increase: 1276.0,
+              std_dev: 2.1,
+              sample_days: 14,
+              confidence: 0.90,
+              currency: "USD"
+            }]
+          })
+        });
+
+        await loadDashboardData();
+        alert("Demo attack & egress scenario successfully ingested and correlated!");
+      } catch (err) {
+        console.error("Demo seed error:", err);
+        alert("Failed to seed demo scenario: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "⚡ Seed Test Scenario";
+      }
+    });
+
+    // Refresh & Search Listeners
+    document.getElementById('btn-refresh').addEventListener('click', loadDashboardData);
+    document.getElementById('search-query').addEventListener('input', renderIncidentList);
+    document.getElementById('filter-severity').addEventListener('change', renderIncidentList);
+    document.getElementById('filter-status').addEventListener('change', renderIncidentList);
+
+    // Initial Load & Polling (every 10s)
+    loadDashboardData();
+    autoRefreshTimer = setInterval(loadDashboardData, 10000);
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+  </script>
+</body>
+</html>

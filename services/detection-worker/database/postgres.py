@@ -317,6 +317,9 @@ class PostgresDatabase(DatabaseRepository):
             identity = EXCLUDED.identity,
             findings = EXCLUDED.findings,
             timeline = EXCLUDED.timeline,
+            cost_impact = EXCLUDED.cost_impact,
+            ai_analysis = EXCLUDED.ai_analysis,
+            remediation = EXCLUDED.remediation,
             updated_at = EXCLUDED.updated_at
         RETURNING id;
         """
@@ -472,8 +475,16 @@ class InMemoryDatabase(DatabaseRepository):
         if incident.incident_id in self.incidents:
             existing = self.incidents[incident.incident_id]
             # Merge findings and update
-            merged_findings = list(set(existing.findings + incident.findings))
+            merged_findings = list(dict.fromkeys(existing.findings + incident.findings))
             existing.findings = merged_findings
+            existing.title = incident.title
+            existing.severity = incident.severity
+            existing.status = incident.status
+            existing.identity = incident.identity
+            existing.timeline = incident.timeline
+            existing.cost_impact = incident.cost_impact
+            existing.ai_analysis = incident.ai_analysis
+            existing.remediation = incident.remediation
             existing.updated_at = incident.updated_at
             return False
         self.incidents[incident.incident_id] = incident

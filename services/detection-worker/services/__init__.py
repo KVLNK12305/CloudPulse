@@ -5,6 +5,15 @@ from .correlation_service import (
     CorrelationStrength,
     CorrelationResult,
 )
+from .azure_ai_client import (
+    AzureAIClient,
+    AzureAIError,
+    AzureAIAuthError,
+    AzureAIRateLimitError,
+    AzureAITimeoutError,
+    AzureAIUnavailableError,
+)
+from .ai_triage_service import AITriageService
 
 __all__ = [
     "IncidentOrchestrator",
@@ -12,5 +21,12 @@ __all__ = [
     "SecurityFinopsCorrelator",
     "CorrelationStrength",
     "CorrelationResult",
+    "AzureAIClient",
+    "AzureAIError",
+    "AzureAIAuthError",
+    "AzureAIRateLimitError",
+    "AzureAITimeoutError",
+    "AzureAIUnavailableError",
+    "AITriageService",
 ]
 
