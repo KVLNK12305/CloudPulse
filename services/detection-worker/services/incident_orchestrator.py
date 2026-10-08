@@ -32,9 +32,14 @@ class IncidentOrchestrator:
         existing_incident = self._db.get_incident(incident_id)
 
         now_iso = datetime.now(timezone.utc).isoformat()
+        timeline_event = (
+            "UNEXPECTED_PUBLIC_EXPOSURE_DETECTED"
+            if finding.finding_type == "UNEXPECTED_PUBLIC_EXPOSURE"
+            else "RESOURCE_CREATION_DETECTED"
+        )
         timeline_entry = {
             "timestamp": finding.timestamp,
-            "event": "RESOURCE_CREATION_DETECTED",
+            "event": timeline_event,
             "finding_id": finding.finding_id,
             "operation": finding.evidence.operation,
             "activity_log_event_id": finding.evidence.activity_log_event_id,
@@ -61,7 +66,11 @@ class IncidentOrchestrator:
             return existing_incident
 
         # Create new Incident
-        title = f"New Resource Created: {finding.resource.name} ({finding.resource.type.split('/')[-1]})"
+        if finding.finding_type == "UNEXPECTED_PUBLIC_EXPOSURE":
+            exp_label = finding.evidence.exposure_type or "Public Exposure"
+            title = f"Unexpected Public Exposure: {finding.resource.name} ({exp_label})"
+        else:
+            title = f"New Resource Created: {finding.resource.name} ({finding.resource.type.split('/')[-1]})"
         logger.info(
             "Creating new incident %s for resource %s",
             incident_id,

@@ -33,6 +33,18 @@ class EvidenceInfo(BaseModel):
     caller_ip: Optional[str] = Field(None, description="Client IP address initiating the action")
     raw_event: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Raw event payload for evidence preservation")
 
+    # UNEXPECTED_PUBLIC_EXPOSURE contract fields (optional for backward compatibility with RESOURCE_CREATION)
+    protocol: Optional[str] = Field(None, description="IP protocol, e.g. TCP, UDP, *")
+    source_address_prefix: Optional[str] = Field(None, description="Source CIDR or service tag, e.g. 0.0.0.0/0, Internet, *")
+    destination_port: Optional[str] = Field(None, description="Target port or port range, e.g. 22, 3389, 1-1024")
+    exposure_type: Optional[str] = Field(None, description="Exposure classification, e.g. MANAGEMENT_PORT, DATABASE_PORT, WILDCARD_PORTS, UNPROTECTED_SERVICE")
+    public_ip: Optional[str] = Field(None, description="Public IP address")
+    public_ip_resource_id: Optional[str] = Field(None, description="Resource ID of Public IP")
+    nsg_id: Optional[str] = Field(None, description="Resource ID of associated NSG")
+    nsg_rule_name: Optional[str] = Field(None, description="Name of NSG security rule")
+    nic_id: Optional[str] = Field(None, description="Resource ID of network interface")
+    subnet_id: Optional[str] = Field(None, description="Resource ID of subnet")
+
 
 def generate_deterministic_finding_id(activity_log_event_id: str, resource_id: str) -> str:
     """
@@ -44,6 +56,23 @@ def generate_deterministic_finding_id(activity_log_event_id: str, resource_id: s
     seed = f"{cleaned_id}:{cleaned_resource}"
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12].upper()
     return f"F-RC-{digest}"
+
+
+def generate_exposure_finding_id(
+    resource_id: str,
+    nsg_rule_id: str,
+    protocol: str,
+    destination_port: str,
+) -> str:
+    """
+    Generate a deterministic finding ID for UNEXPECTED_PUBLIC_EXPOSURE based on
+    resource_id, nsg_rule_id, protocol, and destination_port.
+    Formula: seed = resource_id + ":" + nsg_rule_id + ":" + protocol + ":" + destination_port
+             finding_id = "F-UPE-" + SHA256(seed)[:12].upper()
+    """
+    seed = f"{resource_id}:{nsg_rule_id}:{protocol}:{destination_port}"
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:12].upper()
+    return f"F-UPE-{digest}"
 
 
 class Finding(BaseModel):
@@ -66,6 +95,6 @@ class Finding(BaseModel):
     @field_validator("finding_type")
     @classmethod
     def validate_finding_type(cls, v: str) -> str:
-        if v != "RESOURCE_CREATION":
+        if v not in ("RESOURCE_CREATION", "UNEXPECTED_PUBLIC_EXPOSURE"):
             raise ValueError(f"Invalid finding_type for this detector: {v}")
         return v
