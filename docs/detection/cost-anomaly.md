@@ -1,4 +1,4 @@
-# CloudPulse Detection Specification — Cost Anomaly
+# CloudPulse Detection Specification — Cost Anomaly 
 
 ## 1. Detection ID & Overview
 
