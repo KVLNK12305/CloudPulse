@@ -17,3 +17,11 @@ crash.*.log
 .DS_Store
 .vscode/
 .idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.pytest_cache/
