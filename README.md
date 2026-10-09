@@ -199,14 +199,49 @@ CloudPulse has been proven end-to-end against live Azure infrastructure under su
 
 ---
 
-## 11. Verification & Test Suite
+## 11. Azure Lifecycle Management (ON / OFF / STATUS)
 
-The test suite covers detection algorithms, correlation logic, API contracts, concurrency control, and remediation state machines:
+CloudPulse includes a production-conscious, idempotent Azure compute lifecycle system to minimize idle cloud costs outside of active triage or demonstration cycles without deleting resources or modifying infrastructure.
+
+### Commands
 
 ```bash
-PYTHONPATH=services/detection-worker pytest services/detection-worker/tests -v
+# Check current deployment state (Read-Only)
+./scripts/cloudpulse-status.sh
+
+# Transition deployment to DORMANT (stops PostgreSQL & scales CA to min=0)
+./scripts/cloudpulse-off.sh
+
+# Bring deployment to ACTIVE (starts PostgreSQL, restores 0/1 scaling, triggers activation)
+./scripts/cloudpulse-on.sh
+
+# Preview actions without modifying Azure resources
+./scripts/cloudpulse-off.sh --dry-run
+./scripts/cloudpulse-on.sh --dry-run
 ```
 
-* **Test Results**: **250 passed in 4.8s (100% passing)**
-* **Terraform State**: Clean (`terraform/` untouched)
-* **Git Status**: Clean working tree
+* **DORMANT**: Minimizes compute charges while retaining all data, container images, secrets, network topologies, and Terraform state.
+* **ACTIVE**: Starts dependencies in correct topological sequence, validates private database connectivity, restores scale-to-zero limits, and triggers activation via HTTP ingress.
+* **STATUS**: Strictly read-only; never mutates resources or wakes dormant scale-to-zero replicas.
+
+*Detailed lifecycle architecture, failure recovery, permissions, and cost transparency are documented in [docs/lifecycle/azure-lifecycle.md](docs/lifecycle/azure-lifecycle.md).*
+
+---
+
+## 12. Verification & Test Suite
+
+The test suite covers detection algorithms, correlation logic, API contracts, remediation state machines, and Azure lifecycle automation:
+
+```bash
+# Run application and detection test suite (276 tests)
+PYTHONPATH=services/detection-worker services/detection-worker/.venv/bin/pytest services/detection-worker/tests/ -v
+
+# Run Azure lifecycle unit test suite (16 tests, mocked Azure CLI)
+./scripts/test-lifecycle.sh
+```
+
+* **Application Test Results**: **276 passed (100% passing)**
+* **Lifecycle Test Results**: **16 passed (100% passing)**
+* **Terraform State**: Untouched
+* **Azure Infrastructure**: Preserved and undamaged
+

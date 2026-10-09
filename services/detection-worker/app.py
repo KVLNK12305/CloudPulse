@@ -922,6 +922,7 @@ def create_app(
 
         # 1. Fetch resource metadata from ARG
         resource_meta = None
+        discovered_in_arg = False
         if graph_client:
             try:
                 escaped_id = clean_id.replace("'", "")
@@ -929,6 +930,7 @@ def create_app(
                 res_records = graph_client.query(kql)
                 if res_records:
                     resource_meta = res_records[0]
+                    discovered_in_arg = True
             except Exception as e:
                 logger.warning("Could not fetch resource metadata from ARG for %s: %s", clean_id, str(e))
 
@@ -948,7 +950,10 @@ def create_app(
                 "provisioningState": "Unknown",
                 "sku": None,
                 "tags": {},
+                "discovered_in_arg": False,
             }
+        else:
+            resource_meta["discovered_in_arg"] = True
 
         # 2. Fetch metrics
         metrics_data = {
@@ -1061,7 +1066,7 @@ def create_app(
                 "source": "CloudPulse PostgreSQL state",
             },
             "source_attributions": {
-                "resource": "Azure Resource Graph",
+                "resource": "Azure Resource Graph" if discovered_in_arg else "Fabricated fallback (Resource not found in Azure Resource Graph)",
                 "cost": "Azure Cost Management",
                 "utilization": "Azure Monitor",
                 "security": "CloudPulse Detection Engine",
@@ -1146,7 +1151,7 @@ def create_app(
                 logger.warning("Could not query ARG for estate overview: %s", str(e))
 
         # 2. Cost summary via Cost Management
-        cost_total = 0.0
+        cost_total = None
         currency = "USD"
         by_category = {}
         latency_notice = "Cost data unavailable"
@@ -1159,14 +1164,18 @@ def create_app(
                     lookback_days=14,
                     default_sub_id=sub_id,
                 )
-                cost_total = c_sum.get("summary", {}).get("total_cost", 0.0)
+                has_cost_data = c_sum.get("has_data", False)
+                if has_cost_data:
+                    cost_total = c_sum.get("summary", {}).get("total_cost", 0.0)
+                else:
+                    cost_total = None
                 currency = c_sum.get("currency", "USD")
                 by_category = c_sum.get("by_category", {})
                 latency_notice = c_sum.get("period", {}).get("billing_latency_notice")
                 latest_usage_date = c_sum.get("period", {}).get("latest_usage_date")
-                has_cost_data = c_sum.get("has_data", False)
             except Exception as e:
                 logger.warning("Could not query Cost Management for estate overview: %s", str(e))
+                latency_notice = f"Cost query unavailable: {str(e)}"
 
         # 3. Incident & Security state via Database
         incidents = repository.list_incidents(limit=200)
@@ -1263,12 +1272,13 @@ def create_app(
             return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
         data = request.get_json(silent=True) or {}
         new_status = data.get("status")
-        if new_status:
-            try:
-                incident.status = IncidentStatus(new_status.upper())
-            except ValueError:
-                valid = [s.value for s in IncidentStatus]
-                return jsonify({"error": f"Invalid status '{new_status}'. Valid statuses: {valid}"}), 400
+        if not new_status:
+            return jsonify({"error": "Field 'status' is required for incident status update"}), 400
+        try:
+            incident.status = IncidentStatus(new_status.upper())
+        except ValueError:
+            valid = [s.value for s in IncidentStatus]
+            return jsonify({"error": f"Invalid status '{new_status}'. Valid statuses: {valid}"}), 400
         now_iso = datetime.now(timezone.utc).isoformat()
         incident.updated_at = now_iso
         incident.timeline.append({
@@ -1291,9 +1301,11 @@ def create_app(
             f = repository.get_finding(fid)
             if f:
                 findings.append(f)
+        missing_count = max(0, len(incident.findings) - len(findings))
         return jsonify({
             "incident_id": incident_id,
             "count": len(findings),
+            "missing_findings_count": missing_count,
             "findings": [f.model_dump() for f in findings],
         }), 200
 
@@ -1302,10 +1314,11 @@ def create_app(
         incident = repository.get_incident(incident_id)
         if not incident:
             return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+        sorted_timeline = sorted(incident.timeline, key=lambda e: e.get("timestamp") or "")
         return jsonify({
             "incident_id": incident_id,
-            "count": len(incident.timeline),
-            "timeline": incident.timeline,
+            "count": len(sorted_timeline),
+            "timeline": sorted_timeline,
         }), 200
 
     @app.route("/api/incidents/<incident_id>/ai-analysis", methods=["GET"])
@@ -1499,6 +1512,7 @@ def create_app(
             "by_status": by_stat,
             "correlated_incidents": correlated_count,
             "total_financial_overrun": round(total_overrun, 2),
+            "currency": "USD",
             "triaged_count": triaged_count,
         }), 200
 

@@ -955,6 +955,9 @@
     <!-- TAB 1: OVERVIEW -->
     <section class="tab-content active" id="tab-overview">
 
+      <!-- Dynamic API Health / Latency Warning Container -->
+      <div id="overview-alert-container"></div>
+
       <!-- KPI Summary Row -->
       <div class="kpi-grid">
         <div class="kpi-card inventory">
@@ -971,7 +974,7 @@
             <span>Actual Billed Cost</span>
             <span class="kpi-source-tag">Cost Management</span>
           </div>
-          <span class="kpi-value" id="ov-billed-cost" style="color: #34d399;">₹0.00</span>
+          <span class="kpi-value" id="ov-billed-cost" style="color: #34d399;">—</span>
           <span class="kpi-subtext" id="ov-cost-period">14-day evaluation window</span>
         </div>
 
@@ -1145,6 +1148,9 @@
     <!-- TAB 3: COST & FINOPS (REAL AZURE BILLING & CORRELATION) -->
     <section class="tab-content" id="tab-finops">
       
+      <!-- Dynamic Cost Management Warning / Error Container -->
+      <div id="finops-alert-container"></div>
+
       <!-- Latency Notice Banner -->
       <div class="notice-banner" id="finops-latency-banner">
         <span>⚠️</span>
@@ -1160,7 +1166,7 @@
             <span>Total Actual Cost</span>
             <span class="source-badge cost">ActualCost</span>
           </div>
-          <span class="kpi-value" id="fin-total-cost" style="color: #34d399;">₹0.00</span>
+          <span class="kpi-value" id="fin-total-cost" style="color: #34d399;">—</span>
           <span class="kpi-subtext" id="fin-period-text">Evaluation window</span>
         </div>
 
@@ -1187,7 +1193,7 @@
             <span>Correlated Overrun</span>
             <span class="source-badge cloudpulse">SecOps Concurrence</span>
           </div>
-          <span class="kpi-value" id="fin-correlated-overrun" style="color: var(--sev-critical);">₹0.00</span>
+          <span class="kpi-value" id="fin-correlated-overrun" style="color: var(--sev-critical);">—</span>
           <span class="kpi-subtext">Linked to threat vectors</span>
         </div>
       </div>
@@ -1315,6 +1321,26 @@
     let estateOverview = null;
     let selectedIncidentId = null;
     let autoRefreshTimer = null;
+    let lastCostError = null;
+
+    // Currency Formatting Helper (dynamic, null-safe)
+    function formatCurrency(amount, currency = 'USD') {
+      if (amount === null || amount === undefined || isNaN(amount)) return '—';
+      const c = (currency || 'USD').toUpperCase();
+      const symbol = c === 'USD' ? '$' : (c === 'INR' ? '₹' : (c === 'EUR' ? '€' : (c === 'GBP' ? '£' : c + ' ')));
+      return `${symbol}${Number(amount).toFixed(2)}`;
+    }
+
+    // Provenance Check: Detect Seeded Demo/Test Fixtures
+    function isDemoIncident(inc) {
+      if (!inc) return false;
+      const rName = (inc.resource?.name || '').toLowerCase();
+      const caller = (inc.identity?.caller || '').toLowerCase();
+      const incId = (inc.incident_id || '').toLowerCase();
+      if (rName === 'vm-worker-01' || caller === 'admin@cloudpulse.io') return true;
+      if (incId.includes('demo') || (inc.findings || []).some(f => (typeof f === 'string' && f.toLowerCase().includes('demo')))) return true;
+      return false;
+    }
 
     // Clock
     function updateClock() {
@@ -1346,12 +1372,14 @@
       const icon = document.getElementById('refresh-icon');
       if (icon) icon.style.animation = 'spin 0.6s linear';
 
+      let apiErrors = [];
+
       try {
         const [incResp, ovResp, resResp, costResp] = await Promise.all([
-          fetch('/api/incidents?limit=100').catch(() => null),
-          fetch('/api/estate/overview').catch(() => null),
-          fetch('/api/resources').catch(() => null),
-          fetch('/api/finops/costs').catch(() => null),
+          fetch('/api/incidents?limit=100').catch(e => ({ ok: false, status: 0, error: e.message })),
+          fetch('/api/estate/overview').catch(e => ({ ok: false, status: 0, error: e.message })),
+          fetch('/api/resources').catch(e => ({ ok: false, status: 0, error: e.message })),
+          fetch('/api/finops/costs').catch(e => ({ ok: false, status: 0, error: e.message })),
         ]);
 
         if (incResp && incResp.ok) {
@@ -1359,11 +1387,15 @@
           incidents = incData.incidents || [];
           document.getElementById('nav-inc-count').innerText = incidents.length;
           renderIncidentList();
+        } else if (incResp && !incResp.ok) {
+          apiErrors.push(`Incidents API unavailable (${incResp.status})`);
         }
 
         if (ovResp && ovResp.ok) {
           estateOverview = await ovResp.json();
           renderOverviewTab();
+        } else if (ovResp && !ovResp.ok) {
+          apiErrors.push(`Estate Overview API unavailable (${ovResp.status})`);
         }
 
         if (resResp && resResp.ok) {
@@ -1372,11 +1404,35 @@
           document.getElementById('nav-res-count').innerText = resources.length;
           populateResourceTypeDropdown();
           if (activeTab === 'resources') renderResourcesTable();
+        } else if (resResp && !resResp.ok) {
+          apiErrors.push(`Resource Inventory API unavailable (${resResp.status})`);
         }
 
         if (costResp && costResp.ok) {
           costSummary = await costResp.json();
+          lastCostError = null;
           if (activeTab === 'finops') renderFinopsTab();
+        } else if (costResp && !costResp.ok) {
+          let errDetail = `HTTP ${costResp.status}`;
+          if (costResp.status === 429) errDetail = "Rate limit reached (HTTP 429). Azure Cost Management throttled queries.";
+          else if (costResp.status === 503) errDetail = "Service unavailable (HTTP 503). CostManagementClient unconfigured.";
+          lastCostError = errDetail;
+          if (activeTab === 'finops') renderFinopsTab();
+        }
+
+        // Render overview alert if any critical service failed
+        const ovAlert = document.getElementById('overview-alert-container');
+        if (ovAlert) {
+          if (apiErrors.length > 0) {
+            ovAlert.innerHTML = `
+              <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 16px; font-size: 0.78rem; color: #fca5a5; display: flex; justify-content: space-between; align-items: center;">
+                <div><strong>⚠️ Telemetry Service Notice:</strong> ${apiErrors.map(e => escapeHtml(e)).join('; ')}</div>
+                <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.68rem;" onclick="loadDashboardData()">Retry Telemetry ↻</button>
+              </div>
+            `;
+          } else {
+            ovAlert.innerHTML = '';
+          }
         }
 
         // Auto-select first incident if on incidents tab
@@ -1405,22 +1461,35 @@
 
       document.getElementById('ov-resources-count').innerText = estateOverview.resources?.total || 0;
       
-      const currency = estateOverview.costs?.currency || 'INR';
-      const costTotal = estateOverview.costs?.total_cost || 0;
-      const currSymbol = currency === 'INR' ? '₹' : (currency === 'USD' ? '$' : currency + ' ');
-      document.getElementById('ov-billed-cost').innerText = `${currSymbol}${costTotal.toFixed(2)}`;
+      const hasCostData = estateOverview.costs?.has_data;
+      const currency = estateOverview.costs?.currency || 'USD';
+      const costTotal = estateOverview.costs?.total_cost;
       
-      if (estateOverview.costs?.latest_usage_date) {
-        document.getElementById('ov-cost-period').innerText = `Closed billing through ${estateOverview.costs.latest_usage_date}`;
+      if (hasCostData && costTotal !== null && costTotal !== undefined) {
+        document.getElementById('ov-billed-cost').innerText = formatCurrency(costTotal, currency);
+        if (estateOverview.costs?.latest_usage_date) {
+          document.getElementById('ov-cost-period').innerText = `Closed billing through ${estateOverview.costs.latest_usage_date}`;
+        }
+      } else {
+        document.getElementById('ov-billed-cost').innerText = '—';
+        document.getElementById('ov-cost-period').innerText = 'No closed billing data (24–48h latency)';
       }
 
-      document.getElementById('ov-incidents-count').innerText = estateOverview.security?.total_incidents || 0;
-      const critCount = (estateOverview.security?.by_severity?.CRITICAL || 0) + (estateOverview.security?.by_severity?.HIGH || 0);
+      // Synchronize incident metrics directly from loaded incidents collection
+      const totalInc = incidents.length > 0 ? incidents.length : (estateOverview.security?.total_incidents || 0);
+      document.getElementById('ov-incidents-count').innerText = totalInc;
+
+      const critCount = incidents.length > 0
+        ? incidents.filter(i => i.severity === 'CRITICAL' || i.severity === 'HIGH').length
+        : ((estateOverview.security?.by_severity?.CRITICAL || 0) + (estateOverview.security?.by_severity?.HIGH || 0));
       document.getElementById('ov-crit-count').innerText = `${critCount} Critical/High priority`;
 
-      document.getElementById('ov-correlated-count').innerText = estateOverview.security?.correlated_incidents || 0;
+      const correlatedCount = incidents.length > 0
+        ? incidents.filter(i => i.cost_impact).length
+        : (estateOverview.security?.correlated_incidents || 0);
+      document.getElementById('ov-correlated-count').innerText = correlatedCount;
 
-      // Count triaged incidents
+      // Count triaged incidents directly
       const triaged = incidents.filter(i => i.ai_analysis && i.ai_analysis.status === 'COMPLETED').length;
       document.getElementById('ov-ai-count').innerText = triaged;
 
@@ -1518,9 +1587,8 @@
       }
 
       tbody.innerHTML = filtered.map(r => {
-        const currSymbol = r.currency === 'INR' ? '₹' : (r.currency === 'USD' ? '$' : (r.currency || '') + ' ');
         const costDisplay = (r.actual_cost !== null && r.actual_cost !== undefined)
-          ? `<span style="font-family: var(--font-mono); color: #34d399; font-weight: 600;">${currSymbol}${r.actual_cost.toFixed(2)}</span>`
+          ? `<span style="font-family: var(--font-mono); color: #34d399; font-weight: 600;">${formatCurrency(r.actual_cost, r.currency)}</span>`
           : `<span style="color: var(--text-dim); font-size: 0.70rem;">No billing data</span>`;
 
         let utilDisplay = `<span style="color: var(--text-dim); font-size: 0.70rem;">Metrics unavailable for this resource type</span>`;
@@ -1610,8 +1678,16 @@
       document.getElementById('drawer-header-type').innerText = res.type || 'Azure Resource';
       document.getElementById('drawer-header-name').innerText = res.name || 'Resource Inspector';
 
-      const currSymbol = cost.currency === 'INR' ? '₹' : (cost.currency === 'USD' ? '$' : (cost.currency || '') + ' ');
       const body = document.getElementById('drawer-body-content');
+
+      let unindexedNotice = '';
+      if (res.discovered_in_arg === false || res.provisioningState === 'Unknown') {
+        unindexedNotice = `
+          <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 16px; font-size: 0.76rem; color: #fca5a5;">
+            <strong>⚠️ Not Discovered in Azure Resource Graph:</strong> This resource was synthesized from telemetry identifiers and does not exist in the active Azure Resource Graph inventory (simulated test workload, decommissioned resource, or outside current subscription scope).
+          </div>
+        `;
+      }
 
       let metricsHtml = '<div style="color: var(--text-dim); font-size: 0.76rem;">Metrics unavailable for this resource type</div>';
       if (util.supported && util.metrics && Object.keys(util.metrics).length > 0) {
@@ -1630,18 +1706,18 @@
         metricsHtml = `<div style="color: var(--text-dim); font-size: 0.76rem;">${escapeHtml(util.message)}</div>`;
       }
 
-      let costHtml = '<div style="color: var(--text-dim); font-size: 0.76rem;">No billing data available for selected period</div>';
-      if (cost.has_billing_data) {
+      let costHtml = '<div style="color: var(--text-dim); font-size: 0.76rem;">No billing data available for selected period (24–48h reconciliation latency).</div>';
+      if (cost.has_billing_data && cost.total_cost !== null && cost.total_cost !== undefined) {
         costHtml = `
           <div style="display: flex; align-items: baseline; gap: 8px;">
-            <span style="font-size: 1.4rem; font-weight: 700; color: #34d399; font-family: var(--font-mono);">${currSymbol}${(cost.total_cost || 0).toFixed(2)}</span>
+            <span style="font-size: 1.4rem; font-weight: 700; color: #34d399; font-family: var(--font-mono);">${formatCurrency(cost.total_cost, cost.currency)}</span>
             <span class="source-badge cost">${escapeHtml(cost.cost_category || 'Billed')}</span>
           </div>
           ${cost.meters && cost.meters.length > 0 ? `
             <div style="margin-top: 8px;">
               <div style="font-size: 0.68rem; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px;">Meter Breakdown:</div>
               <ul class="tri-list">
-                ${cost.meters.map(m => `<li><span style="font-family: var(--font-mono);">${escapeHtml(m.meter_name)}</span>: ${currSymbol}${(m.cost || 0).toFixed(4)}</li>`).join('')}
+                ${cost.meters.map(m => `<li><span style="font-family: var(--font-mono);">${escapeHtml(m.meter_name)}</span>: ${formatCurrency(m.cost, cost.currency)}</li>`).join('')}
               </ul>
             </div>
           ` : ''}
@@ -1753,15 +1829,34 @@
     // TAB 3: COST & FINOPS RENDERING
     // ----------------------------------------------------
     function renderFinopsTab() {
+      const alertContainer = document.getElementById('finops-alert-container');
+      if (lastCostError && alertContainer) {
+        alertContainer.innerHTML = `
+          <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 16px; font-size: 0.78rem; color: #fde047; display: flex; justify-content: space-between; align-items: center;">
+            <div><strong>⚠️ Azure Cost Management Notice:</strong> ${escapeHtml(lastCostError)}</div>
+            <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.68rem;" onclick="loadDashboardData()">Retry Telemetry Fetch ↻</button>
+          </div>
+        `;
+      } else if (alertContainer) {
+        alertContainer.innerHTML = '';
+      }
+
       if (!costSummary) return;
 
-      const currency = costSummary.currency || 'INR';
-      const currSymbol = currency === 'INR' ? '₹' : (currency === 'USD' ? '$' : currency + ' ');
-      const totalCost = costSummary.summary?.total_cost || 0;
-      document.getElementById('fin-total-cost').innerText = `${currSymbol}${totalCost.toFixed(2)}`;
+      const currency = costSummary.currency || 'USD';
+      const hasCostData = costSummary.has_data;
+      const totalCost = costSummary.summary?.total_cost;
+      
+      if (hasCostData && totalCost !== null && totalCost !== undefined) {
+        document.getElementById('fin-total-cost').innerText = formatCurrency(totalCost, currency);
+      } else {
+        document.getElementById('fin-total-cost').innerText = '—';
+      }
 
       if (costSummary.period?.start_date && costSummary.period?.end_date) {
         document.getElementById('fin-period-text').innerText = `${costSummary.period.start_date} to ${costSummary.period.end_date}`;
+      } else {
+        document.getElementById('fin-period-text').innerText = '24–48h reconciliation latency';
       }
 
       document.getElementById('fin-workloads-count').innerText = costSummary.summary?.resource_count || 0;
@@ -1771,10 +1866,14 @@
 
       // Correlated overrun calculation
       let overrun = 0;
+      let overrunCurrency = currency;
       incidents.forEach(inc => {
-        if (inc.cost_impact?.deviation_absolute) overrun += parseFloat(inc.cost_impact.deviation_absolute);
+        if (inc.cost_impact?.deviation_absolute) {
+          overrun += parseFloat(inc.cost_impact.deviation_absolute);
+          if (inc.cost_impact.currency) overrunCurrency = inc.cost_impact.currency;
+        }
       });
-      document.getElementById('fin-correlated-overrun').innerText = `${currSymbol}${overrun.toFixed(2)}`;
+      document.getElementById('fin-correlated-overrun').innerText = overrun > 0 ? formatCurrency(overrun, overrunCurrency) : '—';
 
       // Latency notice
       if (costSummary.period?.billing_latency_notice) {
@@ -1785,10 +1884,10 @@
       const driversTbody = document.getElementById('cost-drivers-table-body');
       const drivers = costSummary.top_cost_drivers || [];
       if (drivers.length === 0) {
-        driversTbody.innerHTML = '<tr><td colspan="6" class="empty-state">No cost driver records available.</td></tr>';
+        driversTbody.innerHTML = '<tr><td colspan="6" class="empty-state">No cost driver records available in current billing window.</td></tr>';
       } else {
         driversTbody.innerHTML = drivers.map(d => {
-          const dCurr = d.currency === 'INR' ? '₹' : (d.currency === 'USD' ? '$' : (d.currency || '') + ' ');
+          const dCurr = d.currency || currency;
           return `
             <tr>
               <td>
@@ -1796,7 +1895,7 @@
               </td>
               <td><span class="source-badge arg">${escapeHtml(d.resource_type ? d.resource_type.split('/').pop() : 'Resource')}</span></td>
               <td>${escapeHtml(d.cost_category || 'General')}</td>
-              <td><span style="font-family: var(--font-mono); color: #34d399; font-weight: 700;">${dCurr}${(d.total_cost || 0).toFixed(2)}</span></td>
+              <td><span style="font-family: var(--font-mono); color: #34d399; font-weight: 700;">${formatCurrency(d.total_cost, dCurr)}</span></td>
               <td>
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <span style="font-family: var(--font-mono); font-size: 0.72rem;">${d.percentage_of_total}%</span>
@@ -1823,6 +1922,7 @@
       } else {
         const topCorr = correlatedIncidents[0];
         const ci = topCorr.cost_impact;
+        const ciCurr = ci.currency || currency;
         corrBody.innerHTML = `
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-bottom: 14px;">
             <div class="corr-stat">
@@ -1835,7 +1935,7 @@
             </div>
             <div class="corr-stat">
               <div class="corr-stat-lbl">Financial Surge</div>
-              <div class="corr-stat-val positive">+${(ci.percentage_increase || 0).toFixed(0)}% (+$${(ci.deviation_absolute || 0).toFixed(2)})</div>
+              <div class="corr-stat-val positive">+${(ci.percentage_increase || 0).toFixed(0)}% (+${formatCurrency(ci.deviation_absolute, ciCurr)})</div>
             </div>
             <div class="corr-stat">
               <div class="corr-stat-lbl">Correlated Incident</div>
@@ -1884,8 +1984,13 @@
 
       container.innerHTML = filtered.map(inc => {
         const isActive = inc.incident_id === selectedIncidentId ? 'active' : '';
+        const isDemo = isDemoIncident(inc);
+        const demoBadge = isDemo 
+          ? `<span class="badge-status" style="background: rgba(168, 85, 247, 0.18); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 0.62rem; padding: 2px 6px;">🧪 DEMO FIXTURE</span>` 
+          : '';
+
         const costTag = inc.cost_impact 
-          ? `<span class="finops-tag">+$${(inc.cost_impact.deviation_absolute || 0).toFixed(2)}</span>` 
+          ? `<span class="finops-tag">+${formatCurrency(inc.cost_impact.deviation_absolute, inc.cost_impact.currency || 'USD')}</span>` 
           : '';
 
         const timeStr = inc.created_at ? inc.created_at.substring(11, 16) + ' UTC' : '';
@@ -1895,6 +2000,7 @@
             <div class="item-top">
               <span class="badge-sev ${inc.severity}">${inc.severity}</span>
               <span class="badge-status ${inc.status}">${inc.status}</span>
+              ${demoBadge}
               <span style="font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-dim);">${inc.incident_id}</span>
             </div>
             <div class="item-title">${escapeHtml(inc.title)}</div>
@@ -1939,13 +2045,22 @@
       const costImpact = inc.cost_impact;
       const aiAnalysis = inc.ai_analysis;
       const isTriaged = aiAnalysis && aiAnalysis.status === 'COMPLETED';
+      const isDemo = isDemoIncident(inc);
+
+      const demoBanner = isDemo ? `
+        <div style="background: rgba(168, 85, 247, 0.12); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 14px; font-size: 0.76rem; color: #d8b4fe;">
+          <strong>🧪 Seeded Demonstration Fixture:</strong> This incident was generated from simulated test scenario telemetry (target workload <code>${escapeHtml(inc.resource.name)}</code>, simulated caller <code>${escapeHtml(inc.identity?.caller || 'unknown')}</code>). It is intended for testing and does not reflect an active breach of live Azure infrastructure.
+        </div>
+      ` : '';
 
       let html = `
         <div class="detail-header-card">
+          ${demoBanner}
           <div class="item-top">
             <div>
               <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
                 <span class="badge-sev ${inc.severity}">${inc.severity}</span>
+                ${isDemo ? '<span class="badge-status" style="background: rgba(168, 85, 247, 0.18); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 0.65rem;">🧪 DEMO FIXTURE</span>' : ''}
                 <span style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-dim);">${inc.incident_id}</span>
                 <span style="font-size: 0.74rem; color: var(--text-dim);">Created: ${inc.created_at}</span>
               </div>
@@ -1984,6 +2099,7 @@
       `;
 
       if (costImpact) {
+        const ciCurr = costImpact.currency || 'USD';
         html += `
           <div class="correlation-card">
             <div class="correlation-title">
@@ -1997,15 +2113,15 @@
               </div>
               <div class="corr-stat">
                 <div class="corr-stat-lbl">Actual Billed Cost</div>
-                <div class="corr-stat-val">$${(costImpact.actual_cost || 0).toFixed(2)}</div>
+                <div class="corr-stat-val">${formatCurrency(costImpact.actual_cost, ciCurr)}</div>
               </div>
               <div class="corr-stat">
                 <div class="corr-stat-lbl">Historical Baseline</div>
-                <div class="corr-stat-val">$${(costImpact.baseline_cost || 0).toFixed(2)}</div>
+                <div class="corr-stat-val">${formatCurrency(costImpact.baseline_cost, ciCurr)}</div>
               </div>
               <div class="corr-stat">
                 <div class="corr-stat-lbl">Financial Surge</div>
-                <div class="corr-stat-val positive">+${(costImpact.percentage_increase || 0).toFixed(0)}% (+$${(costImpact.deviation_absolute || 0).toFixed(2)})</div>
+                <div class="corr-stat-val positive">+${(costImpact.percentage_increase || 0).toFixed(0)}% (+${formatCurrency(costImpact.deviation_absolute, ciCurr)})</div>
               </div>
             </div>
           </div>
@@ -2197,10 +2313,11 @@
           await loadDashboardData();
           renderIncidentDetail(incidentId);
         } else {
-          alert("AI Triage could not be generated. Check server logs.");
+          const errData = await resp.json().catch(() => ({}));
+          alert(`AI Triage generation failed (${resp.status}): ${errData.message || errData.error || 'Server error'}`);
         }
       } catch (err) {
-        alert("AI triage request failed: " + err.message);
+        alert("AI triage request network error: " + err.message);
       } finally {
         if (btn) btn.disabled = false;
         if (spinner) spinner.style.display = 'none';
@@ -2221,9 +2338,14 @@
           if (idx !== -1) incidents[idx] = updated;
           renderIncidentList();
           renderIncidentDetail(incidentId);
+          renderOverviewTab();
+        } else {
+          const errData = await resp.json().catch(() => ({}));
+          alert(`Status mutation failed (${resp.status}): ${errData.error || errData.message || 'Unknown error'}`);
         }
       } catch (e) {
         console.error("Failed to update status:", e);
+        alert("Network error updating status: " + e.message);
       }
     }
 
@@ -2249,10 +2371,12 @@
           if (idx !== -1 && result.incident) incidents[idx] = result.incident;
           renderIncidentDetail(incidentId);
         } else {
-          alert("Approval intent failed to record.");
+          const errData = await resp.json().catch(() => ({}));
+          alert(`Approval intent failed to record (${resp.status}): ${errData.message || errData.error || 'Invalid action or permission denied'}`);
         }
       } catch (e) {
         console.error("Approval error:", e);
+        alert("Network error recording approval: " + e.message);
       }
     }
 
@@ -2278,7 +2402,7 @@
           await loadDashboardData();
           renderIncidentDetail(incidentId);
         } else {
-          alert(`Remediation execution failed: ${result.error || result.message || 'Unknown error'}`);
+          alert(`Remediation execution failed (${resp.status}): ${result.error || result.message || 'Verification or mutation failed'}`);
           await loadDashboardData();
           renderIncidentDetail(incidentId);
         }
