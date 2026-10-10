@@ -30,10 +30,17 @@ class Config:
     # Azure AI Triage Settings
     AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")
     AZURE_OPENAI_API_KEY: str = os.getenv("AZURE_OPENAI_API_KEY", "")
-    AZURE_OPENAI_DEPLOYMENT_NAME: str = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4o")
-    AZURE_OPENAI_API_VERSION: str = os.getenv("AZURE_OPENAI_API_VERSION", "2024-08-01-preview")
+    AZURE_OPENAI_DEPLOYMENT_NAME: str = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME", "cloudpulse-triage")
+    AZURE_OPENAI_MODEL_NAME: str = os.getenv("AZURE_OPENAI_MODEL_NAME", "gpt-4.1-mini")
+    AZURE_OPENAI_API_VERSION: str = os.getenv("AZURE_OPENAI_API_VERSION", "")
+    AI_LIVE_ENABLED: bool = os.getenv("AI_LIVE_ENABLED", "true").lower() in ("true", "1", "yes")
     AI_MOCK_MODE: bool = os.getenv("AI_MOCK_MODE", "false").lower() in ("true", "1", "yes")
     AI_REQUEST_TIMEOUT_SECONDS: int = int(os.getenv("AI_REQUEST_TIMEOUT_SECONDS", "30"))
+    AI_MAX_TOKENS: int = int(os.getenv("AI_MAX_TOKENS", "2048"))
+    AI_TEMPERATURE: float = float(os.getenv("AI_TEMPERATURE", "0.1"))
+    AI_IS_REASONING_MODEL: bool = os.getenv("AI_IS_REASONING_MODEL", "false").lower() in ("true", "1", "yes")
+    AI_MAX_RETRIES: int = int(os.getenv("AI_MAX_RETRIES", "3"))
+    AI_MAX_INPUT_CHARS: int = int(os.getenv("AI_MAX_INPUT_CHARS", "32000"))
 
 
 config = Config()

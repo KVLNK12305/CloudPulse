@@ -196,7 +196,7 @@ The AI response must strictly conform to the following JSON schema. No freeform 
     "Process-level command line and executable attribution require host-level Agent diagnostics."
   ],
   "triage_timestamp": "2026-10-08T02:05:00Z",
-  "model_identifier": "azure-openai/gpt-4o"
+  "model_identifier": "gpt-4.1-mini"
 }
 ```
 
@@ -204,11 +204,12 @@ The AI response must strictly conform to the following JSON schema. No freeform 
 
 ## 5. Security & Safety Constraints
 
-1. **Zero Write Permissions**: The AI service principal has `Reader` role at most on Azure metadata and **zero** resource write/modify permissions.
+1. **Zero Write Permissions**: The AI service principal has `Cognitive Services OpenAI User` role scoped specifically to the Azure OpenAI account and **zero** resource write/modify permissions.
 2. **Untrusted Interpreter Model**: All AI output is treated by the system as untrusted advisory text.
 3. **No Direct Execution**: Model recommendations **never** become executable shell or Azure CLI commands automatically.
 4. **Human-in-the-Loop Gateway**: Any proposed containment action requires explicit human review and authorization before being handed to future remediation workers.
 5. **No Hallucinated Telemetry**: The AI must explicitly declare missing information in the `limitations` section rather than speculating.
+6. **Data Processing & Region Residency (GlobalStandard SKU)**: The `cloudpulse-triage` deployment utilizes the `GlobalStandard` SKU with `gpt-4.1-mini`. Prompts may be routed and processed dynamically across any Azure data center region based on global capacity. Strictly sanitized context (`AISafeIncidentContext`) is transmitted; raw secrets, customer network payload contents, and credentials are never sent to the model.
 
 ---
 

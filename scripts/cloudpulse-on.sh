@@ -69,11 +69,12 @@ STEP6_RESTORE_SCALE="PENDING"
 STEP7_TRIGGER_ACTIVATION="PENDING"
 STEP8_HEALTH_VERIFIED="PENDING"
 STEP9_IDENTITY_DEPS="PENDING"
+STEP10_OPENAI="PENDING"
 
 # ------------------------------------------------------------------------------
 # Step 1: Pre-flight Verification & Tools
 # ------------------------------------------------------------------------------
-log_step "1/9: Verifying required CLI tools, authentication, and resource group..."
+log_step "1/10: Verifying required CLI tools, authentication, and resource group..."
 if ! check_required_tools; then
     STEP1_PREFLIGHT="FAILED"
     exit 1
@@ -93,7 +94,7 @@ STEP1_PREFLIGHT="SUCCESS"
 # ------------------------------------------------------------------------------
 # Step 2: Validate Active Subscription Context
 # ------------------------------------------------------------------------------
-log_step "2/9: Validating active subscription context..."
+log_step "2/10: Validating active subscription context..."
 if ! verify_subscription; then
     STEP2_SUBSCRIPTION="FAILED"
     exit 1
@@ -103,7 +104,7 @@ STEP2_SUBSCRIPTION="SUCCESS"
 # ------------------------------------------------------------------------------
 # Step 3: Start PostgreSQL Flexible Server if Stopped
 # ------------------------------------------------------------------------------
-log_step "3/9: Checking PostgreSQL server state..."
+log_step "3/10: Checking PostgreSQL server state..."
 pg_details=$(get_postgres_details || echo "{}")
 pg_state=$(echo "$pg_details" | jq -r '.state // "UNKNOWN"')
 
@@ -144,7 +145,7 @@ fi
 # Step 4: Poll PostgreSQL Until Ready
 # ------------------------------------------------------------------------------
 if [[ "$DRY_RUN" != "true" && "$STEP4_PG_READY" != "SUCCESS (already Ready)" && "$STEP3_PG_START" == "SUCCESS" ]]; then
-    log_step "4/9: Polling PostgreSQL server until Ready (timeout: ${POSTGRES_TIMEOUT_SECONDS}s)..."
+    log_step "4/10: Polling PostgreSQL server until Ready (timeout: ${POSTGRES_TIMEOUT_SECONDS}s)..."
     start_time=$(date +%s)
     pg_ready=false
 
@@ -180,7 +181,7 @@ fi
 # Step 5: Verify Database Connectivity via Supported Method
 # ------------------------------------------------------------------------------
 if [[ "$STEP4_PG_READY" == "SUCCESS" || "$STEP4_PG_READY" == "SUCCESS (already Ready)" ]]; then
-    log_step "5/9: Verifying PostgreSQL database availability..."
+    log_step "5/10: Verifying PostgreSQL database availability..."
     if [[ "$DRY_RUN" == "true" ]]; then
         log_dry_run "az postgres flexible-server db show --resource-group '${RESOURCE_GROUP}' --server-name '${POSTGRES_SERVER}' --database-name 'cloudpulse'"
         STEP5_DB_HEALTH="SUCCESS (dry-run)"
@@ -213,6 +214,7 @@ if [[ "$STEP4_PG_READY" == "FAILED" ]]; then
     STEP7_TRIGGER_ACTIVATION="SKIPPED (PostgreSQL failed)"
     STEP8_HEALTH_VERIFIED="SKIPPED (PostgreSQL failed)"
     STEP9_IDENTITY_DEPS="SKIPPED (PostgreSQL failed)"
+    STEP10_OPENAI="SKIPPED (PostgreSQL failed)"
 
     echo -e "\n${COLOR_BOLD}==============================================================================${COLOR_RESET}"
     echo -e "${COLOR_BOLD}                     CloudPulse ON Execution Summary                          ${COLOR_RESET}"
@@ -226,6 +228,7 @@ if [[ "$STEP4_PG_READY" == "FAILED" ]]; then
     echo -e "Step 7: Minimum Activation Triggered  : ${STEP7_TRIGGER_ACTIVATION}"
     echo -e "Step 8: Application Health Verified   : ${STEP8_HEALTH_VERIFIED}"
     echo -e "Step 9: Identity & Dependencies Check : ${STEP9_IDENTITY_DEPS}"
+    echo -e "Step 10: Azure OpenAI & Model Ready   : ${STEP10_OPENAI}"
     echo -e "------------------------------------------------------------------------------"
     echo -e "\n${COLOR_BOLD}${COLOR_YELLOW}Recovery Instructions:${COLOR_RESET}"
     echo -e "  1. Inspect PostgreSQL server status: az postgres flexible-server show -g ${RESOURCE_GROUP} -n ${POSTGRES_SERVER}"
@@ -237,7 +240,7 @@ fi
 # ------------------------------------------------------------------------------
 # Step 6: Restore Container App Intended Scaling Limits (min=0, max=1)
 # ------------------------------------------------------------------------------
-log_step "6/9: Restoring Container App scaling limits (min=${INTENDED_MIN_REPLICAS}, max=${INTENDED_MAX_REPLICAS})..."
+log_step "6/10: Restoring Container App scaling limits (min=${INTENDED_MIN_REPLICAS}, max=${INTENDED_MAX_REPLICAS})..."
 ca_details=$(get_container_app_details || echo "{}")
 current_ca_min=$(echo "$ca_details" | jq -r '.minReplicas // -1')
 current_ca_max=$(echo "$ca_details" | jq -r '.maxReplicas // -1')
@@ -274,6 +277,7 @@ if [[ "$STEP6_RESTORE_SCALE" == "FAILED" ]]; then
     STEP7_TRIGGER_ACTIVATION="SKIPPED (scale failed)"
     STEP8_HEALTH_VERIFIED="SKIPPED (scale failed)"
     STEP9_IDENTITY_DEPS="SKIPPED (scale failed)"
+    STEP10_OPENAI="SKIPPED (scale failed)"
 
     echo -e "\n${COLOR_BOLD}==============================================================================${COLOR_RESET}"
     echo -e "${COLOR_BOLD}                     CloudPulse ON Execution Summary                          ${COLOR_RESET}"
@@ -287,6 +291,7 @@ if [[ "$STEP6_RESTORE_SCALE" == "FAILED" ]]; then
     echo -e "Step 7: Minimum Activation Triggered  : ${STEP7_TRIGGER_ACTIVATION}"
     echo -e "Step 8: Application Health Verified   : ${STEP8_HEALTH_VERIFIED}"
     echo -e "Step 9: Identity & Dependencies Check : ${STEP9_IDENTITY_DEPS}"
+    echo -e "Step 10: Azure OpenAI & Model Ready   : ${STEP10_OPENAI}"
     echo -e "------------------------------------------------------------------------------"
     echo -e "\n${COLOR_BOLD}${COLOR_YELLOW}Partial State Notice & Recovery:${COLOR_RESET}"
     echo -e "  PostgreSQL was started and is Ready, but Container App scaling failed."
@@ -297,7 +302,7 @@ fi
 # ------------------------------------------------------------------------------
 # Step 7: Trigger Activation via Existing HTTP Ingress
 # ------------------------------------------------------------------------------
-log_step "7/9: Triggering minimum activation for scale-to-zero Container App..."
+log_step "7/10: Triggering minimum activation for scale-to-zero Container App..."
 if [[ -z "$ca_fqdn" ]]; then
     ca_details=$(get_container_app_details || echo "{}")
     ca_fqdn=$(echo "$ca_details" | jq -r '.fqdn // ""')
@@ -313,6 +318,7 @@ else
         STEP7_TRIGGER_ACTIVATION="SUCCESS (dry-run)"
         STEP8_HEALTH_VERIFIED="SUCCESS (dry-run)"
         STEP9_IDENTITY_DEPS="SUCCESS (dry-run)"
+        STEP10_OPENAI="SUCCESS (dry-run)"
     else
         # Initial non-blocking ping to trigger KEDA / Envoy HTTP scaler
         curl -sk -m 5 "https://${ca_fqdn}/health" >/dev/null 2>&1 || true
@@ -326,7 +332,7 @@ fi
 # ------------------------------------------------------------------------------
 health_payload=""
 if [[ "$DRY_RUN" != "true" && "$STEP7_TRIGGER_ACTIVATION" == "SUCCESS" ]]; then
-    log_step "8/9: Polling application health and active replicas (timeout: ${ACTIVATION_TIMEOUT_SECONDS}s)..."
+    log_step "8/10: Polling application health and active replicas (timeout: ${ACTIVATION_TIMEOUT_SECONDS}s)..."
     start_time=$(date +%s)
     app_ready=false
 
@@ -339,7 +345,7 @@ if [[ "$DRY_RUN" != "true" && "$STEP7_TRIGGER_ACTIVATION" == "SUCCESS" ]]; then
             app_status=$(echo "$health_payload" | jq -r '.status // "unknown"')
             app_storage=$(echo "$health_payload" | jq -r '.storage // "unknown"')
 
-            if [[ "$app_status" == "healthy" ]]; then
+            if [[ "$app_status" == "healthy" || "$app_status" == "degraded" ]]; then
                 log_success "Application health probe responded: status='${app_status}', storage='${app_storage}' (${elapsed}s elapsed)."
                 
                 # Check actual replicas
@@ -370,7 +376,7 @@ fi
 # Step 9: Verify Managed Identity & Azure Dependencies
 # ------------------------------------------------------------------------------
 if [[ "$DRY_RUN" != "true" && "$STEP8_HEALTH_VERIFIED" == "SUCCESS" ]]; then
-    log_step "9/9: Verifying managed identity and Azure dependencies..."
+    log_step "9/10: Verifying managed identity and Azure dependencies..."
     
     # Verify managed identity in Azure
     if az identity show --resource-group "$RESOURCE_GROUP" --name "cloudpulse-identity" -o none 2>/dev/null; then
@@ -392,7 +398,59 @@ if [[ "$DRY_RUN" != "true" && "$STEP8_HEALTH_VERIFIED" == "SUCCESS" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 10. Report Final Operational Status
+# Step 10: Verify Azure OpenAI Service & Model Deployment
+# ------------------------------------------------------------------------------
+if [[ "$DRY_RUN" != "true" && "$STEP8_HEALTH_VERIFIED" == "SUCCESS" ]]; then
+    log_step "10/10: Verifying Azure OpenAI account, model deployment, and AI connectivity..."
+    oai_account_json=$(get_openai_account_details || echo "{}")
+    oai_acc_state=$(echo "$oai_account_json" | jq -r '.provisioningState // "UNKNOWN"')
+
+    if [[ "$oai_acc_state" != "Succeeded" ]]; then
+        log_warn "Azure OpenAI account '${OPENAI_ACCOUNT}' is in state: ${oai_acc_state}."
+        STEP10_OPENAI="DEGRADED (Account state: ${oai_acc_state})"
+    else
+        log_info "Azure OpenAI account '${OPENAI_ACCOUNT}' verified (State: ${oai_acc_state}, Region: ${OPENAI_REGION})."
+        
+        # Check model deployment
+        oai_dep_json=$(get_openai_deployment_details "$OPENAI_DEPLOYMENT" || echo "{}")
+        oai_dep_state=$(echo "$oai_dep_json" | jq -r '.provisioningState // "NOT_DEPLOYED"')
+
+        if [[ "$oai_dep_state" == "Succeeded" ]]; then
+            log_success "Azure OpenAI deployment '${OPENAI_DEPLOYMENT}' verified (State: ${oai_dep_state})."
+            
+            # Check RBAC
+            role_json=$(check_openai_role_assignment || echo "[]")
+            role_count=$(echo "$role_json" | jq 'if type=="array" then length else 0 end' 2>/dev/null || echo "0")
+            if [[ "$role_count" -gt 0 ]]; then
+                log_success "Role 'Cognitive Services OpenAI User' verified for identity '${CONTAINER_APP_PRINCIPAL_ID}'."
+                STEP10_OPENAI="SUCCESS (Live gpt-4.1-mini operational)"
+            else
+                log_warn "Managed identity lacks 'Cognitive Services OpenAI User' role on '${OPENAI_ACCOUNT}'."
+                log_warn "Actionable manual assignment command:"
+                log_warn "  az role assignment create --assignee ${CONTAINER_APP_PRINCIPAL_ID} --role 'Cognitive Services OpenAI User' --scope '/subscriptions/${EXPECTED_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.CognitiveServices/accounts/${OPENAI_ACCOUNT}'"
+                STEP10_OPENAI="DEGRADED (Role missing; fallback synthesis active)"
+            fi
+        else
+            log_warn "Azure OpenAI model deployment '${OPENAI_DEPLOYMENT}' is missing or not ready on '${OPENAI_ACCOUNT}' (State: ${oai_dep_state})."
+            log_warn "Actionable diagnostic: CloudPulse does not create model deployments automatically."
+            log_warn "To deploy the model manually, execute:"
+            log_warn "  az cognitiveservices account deployment create -g ${RESOURCE_GROUP} -n ${OPENAI_ACCOUNT} --deployment-name ${OPENAI_DEPLOYMENT} --model-name ${OPENAI_MODEL} --model-version '${OPENAI_MODEL_VERSION}' --model-format OpenAI --sku-capacity 10 --sku-name GlobalStandard"
+            STEP10_OPENAI="DEGRADED (Model deployment missing; fallback synthesis active)"
+        fi
+    fi
+
+    # Check AI runtime status from application health probe
+    if [[ -n "$health_payload" ]]; then
+        ai_reported_mode=$(echo "$health_payload" | jq -r '.ai_provider.execution_mode // ""')
+        ai_reported_model=$(echo "$health_payload" | jq -r '.ai_provider.model_identifier // ""')
+        if [[ -n "$ai_reported_mode" ]]; then
+            log_info "Application reported AI runtime mode: ${ai_reported_mode} (${ai_reported_model})"
+        fi
+    fi
+fi
+
+# ------------------------------------------------------------------------------
+# 11. Report Final Operational Status
 # ------------------------------------------------------------------------------
 echo -e "\n${COLOR_BOLD}==============================================================================${COLOR_RESET}"
 echo -e "${COLOR_BOLD}                     CloudPulse ON Execution Summary                          ${COLOR_RESET}"
@@ -406,6 +464,7 @@ echo -e "Step 6: Scale Limits Restored (0/1)   : ${STEP6_RESTORE_SCALE}"
 echo -e "Step 7: Minimum Activation Triggered  : ${STEP7_TRIGGER_ACTIVATION}"
 echo -e "Step 8: Application Health Verified   : ${STEP8_HEALTH_VERIFIED}"
 echo -e "Step 9: Identity & Dependencies Check : ${STEP9_IDENTITY_DEPS}"
+echo -e "Step 10: Azure OpenAI & Model Ready   : ${STEP10_OPENAI}"
 echo -e "------------------------------------------------------------------------------"
 
 has_failure=false
@@ -432,10 +491,16 @@ if [[ "$DRY_RUN" == "true" ]]; then
     exit 0
 fi
 
-log_success "CloudPulse is fully ACTIVE and operational!"
+if [[ "$STEP10_OPENAI" =~ "DEGRADED" ]]; then
+    log_warn "CloudPulse is OPERATIONAL (DEGRADED: AI running in deterministic fallback mode)."
+else
+    log_success "CloudPulse is fully ACTIVE and operational!"
+fi
+
 echo -e "\n${COLOR_BOLD}${COLOR_GREEN}✔ Service Endpoints:${COLOR_RESET}"
 echo -e "  Dashboard UI    : ${COLOR_BOLD}https://${ca_fqdn}/dashboard${COLOR_RESET}"
 echo -e "  Health Probe    : ${COLOR_BOLD}https://${ca_fqdn}/health${COLOR_RESET}"
+echo -e "  AI Status API   : ${COLOR_BOLD}https://${ca_fqdn}/api/ai/status${COLOR_RESET}"
 echo -e "  Incidents API   : ${COLOR_BOLD}https://${ca_fqdn}/api/incidents${COLOR_RESET}"
 echo -e "  Cost / FinOps   : ${COLOR_BOLD}https://${ca_fqdn}/api/finops/costs${COLOR_RESET}"
 echo -e "\n  To safely shut down when finished, run: ${COLOR_BOLD}./scripts/cloudpulse-off.sh${COLOR_RESET}\n"

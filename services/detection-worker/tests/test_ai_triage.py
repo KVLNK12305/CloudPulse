@@ -338,7 +338,8 @@ class TestMalformedResponses:
         """When the AI client returns invalid JSON, triage must degrade."""
         mock_client = MagicMock(spec=AzureAIClient)
         mock_client.complete_chat.side_effect = AzureAIError("Azure AI returned invalid JSON payload")
-        mock_client.deployment_name = "gpt-4o"
+        mock_client.deployment_name = "cloudpulse-triage"
+        mock_client.model_identifier = "gpt-4.1-mini"
 
         svc = AITriageService(db_repo=seeded_db, ai_client=mock_client)
         incident, findings = _make_incident()
@@ -356,7 +357,8 @@ class TestMalformedResponses:
         """AI returns valid JSON but wrong shape -> fallback."""
         mock_client = MagicMock(spec=AzureAIClient)
         mock_client.complete_chat.return_value = {"wrong_key": "wrong_value"}
-        mock_client.deployment_name = "gpt-4o"
+        mock_client.deployment_name = "cloudpulse-triage"
+        mock_client.model_identifier = "gpt-4.1-mini"
 
         svc = AITriageService(db_repo=seeded_db, ai_client=mock_client)
         incident, findings = _make_incident()
@@ -409,7 +411,8 @@ class TestErrorClassification:
     def _run_degraded_triage(self, seeded_db, side_effect):
         mock_client = MagicMock(spec=AzureAIClient)
         mock_client.complete_chat.side_effect = side_effect
-        mock_client.deployment_name = "gpt-4o"
+        mock_client.deployment_name = "cloudpulse-triage"
+        mock_client.model_identifier = "gpt-4.1-mini"
         svc = AITriageService(db_repo=seeded_db, ai_client=mock_client)
         incident, findings = _make_incident()
         _seed_db(seeded_db, incident, findings)
@@ -450,7 +453,8 @@ class TestGracefulDegradation:
         """After AI failure, the incident remains fully queryable."""
         mock_client = MagicMock(spec=AzureAIClient)
         mock_client.complete_chat.side_effect = AzureAIUnavailableError("503")
-        mock_client.deployment_name = "gpt-4o"
+        mock_client.deployment_name = "cloudpulse-triage"
+        mock_client.model_identifier = "gpt-4.1-mini"
 
         svc = AITriageService(db_repo=seeded_db, ai_client=mock_client)
         incident, findings = _make_incident()
@@ -520,7 +524,8 @@ class TestImmutableFields:
 class TestCacheRefresh:
     def test_cached_analysis_returned_without_re_calling_ai(self, seeded_db):
         mock_client = MagicMock(spec=AzureAIClient)
-        mock_client.deployment_name = "gpt-4o"
+        mock_client.deployment_name = "cloudpulse-triage"
+        mock_client.model_identifier = "gpt-4.1-mini"
         mock_client.complete_chat.return_value = {
             "summary": "Mock", "risk_assessment": "Mock", "likely_scenario": "Mock",
             "security_impact": "Mock", "financial_impact": "Mock",

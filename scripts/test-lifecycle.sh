@@ -2,7 +2,7 @@
 # ==============================================================================
 # CloudPulse Azure Lifecycle - Test Suite Runner
 #
-# Executes the lifecycle unit test suite (16 tests) validating ON, OFF, and STATUS
+# Executes the lifecycle unit test suite (23 tests) validating ON, OFF, and STATUS
 # behavior against mocked Azure CLI responses with zero Azure cloud mutations.
 # ==============================================================================
 

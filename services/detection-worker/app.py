@@ -85,13 +85,20 @@ def create_app(
     """
     app = Flask(__name__)
 
-    # Initialize persistence
+    def _is_postgres_repo(repo: Any) -> bool:
+        return type(repo).__name__ == "PostgresDatabase"
+
+    # Initialize persistence with explicit degradation observability
+    db_degraded = False
+    db_degraded_reason = None
     if db_repo is not None:
         repository = db_repo
+        storage_mode = "persistent" if _is_postgres_repo(repository) else "in_memory"
     else:
         if config.ENVIRONMENT == "test" or not config.POSTGRES_PASSWORD:
             logger.info("Using InMemoryDatabase repository (test environment or no PG password provided).")
             repository = InMemoryDatabase()
+            storage_mode = "in_memory"
         else:
             try:
                 repository = PostgresDatabase(
@@ -103,13 +110,22 @@ def create_app(
                     sslmode=config.POSTGRES_SSLMODE,
                 )
                 repository.initialize_schema()
+                storage_mode = "persistent"
             except Exception as e:
+                db_degraded = True
+                db_degraded_reason = f"PostgreSQL connection to {config.POSTGRES_HOST} failed: {str(e)}"
                 logger.warning(
                     "Could not connect to PostgreSQL Flexible Server (%s). Falling back to InMemoryDatabase: %s",
                     config.POSTGRES_HOST,
                     str(e),
                 )
                 repository = InMemoryDatabase()
+                storage_mode = "in_memory"
+
+    app.db_degraded = db_degraded
+    app.db_degraded_reason = db_degraded_reason
+    app.storage_mode = storage_mode
+    app.is_persistent = (storage_mode == "persistent")
 
     # Initialize Log Analytics client
     if log_client is not _DEFAULT_CLIENT:
@@ -171,9 +187,16 @@ def create_app(
 
     @app.route("/health", methods=["GET"])
     def health():
+        is_postgres = _is_postgres_repo(repository)
+        # Reflect database disconnection in overall status if degraded from failed Postgres connection
+        overall_status = "degraded" if getattr(app, "db_degraded", False) else "healthy"
+
+        actual_ai_client = ai_triage_service._client
+        ai_cfg = actual_ai_client.get_configuration_status() if hasattr(actual_ai_client, "get_configuration_status") else {}
+
         return jsonify({
             "service": "cloudpulse-detection-worker",
-            "status": "healthy",
+            "status": overall_status,
             "environment": config.ENVIRONMENT,
             "detector": ResourceCreationDetector.DETECTION_ID,
             "detectors": [
@@ -182,8 +205,44 @@ def create_app(
                 SuspiciousOutboundActivityDetector.DETECTION_ID,
                 CostAnomalyDetector.DETECTION_ID,
             ],
-            "storage": "postgres" if isinstance(repository, PostgresDatabase) else "in_memory",
+            "storage": "postgres" if is_postgres else "in_memory",
+            "database": {
+                "connected": is_postgres,
+                "readiness": "ready" if is_postgres else ("unhealthy" if getattr(app, "db_degraded", False) else "in_memory"),
+                "storage_mode": "persistent" if is_postgres else "in_memory",
+                "durable": is_postgres,
+                "host": config.POSTGRES_HOST if (is_postgres or getattr(app, "db_degraded", False)) else None,
+                "degraded": getattr(app, "db_degraded", False),
+                "degradation_reason": getattr(app, "db_degraded_reason", None),
+            },
+            "ai_provider": {
+                "provider": ai_cfg.get("provider", "deterministic-synthesizer"),
+                "execution_mode": ai_cfg.get("execution_mode", "FALLBACK"),
+                "status": ai_cfg.get("status", "FALLBACK"),
+                "endpoint_configured": ai_cfg.get("endpoint_configured", False),
+                "mock_mode": ai_cfg.get("mock_mode", False),
+                "deployment_name": ai_cfg.get("deployment_name"),
+                "model_identifier": ai_cfg.get("model_identifier", "gpt-4.1-mini"),
+                "last_successful_request_timestamp": ai_cfg.get("last_successful_request_timestamp"),
+                "error_category": ai_cfg.get("error_category"),
+            },
         })
+
+    @app.route("/api/ai/status", methods=["GET"])
+    def get_ai_status():
+        actual_ai_client = ai_triage_service._client
+        ai_cfg = actual_ai_client.get_configuration_status() if hasattr(actual_ai_client, "get_configuration_status") else {}
+        return jsonify({
+            "service": "cloudpulse-ai-triage",
+            "status": "success",
+            "provider": ai_cfg.get("provider", "deterministic-synthesizer"),
+            "deployment_name": ai_cfg.get("deployment_name"),
+            "model_identifier": ai_cfg.get("model_identifier", "gpt-4.1-mini"),
+            "execution_mode": ai_cfg.get("execution_mode", "FALLBACK"),
+            "last_successful_request_timestamp": ai_cfg.get("last_successful_request_timestamp"),
+            "error_category": ai_cfg.get("error_category"),
+            "ai_configuration": ai_cfg,
+        }), 200
 
     @app.route("/", methods=["GET"])
     def home():
@@ -1339,12 +1398,20 @@ def create_app(
         force_refresh = bool(data.get("force_refresh", False))
         analysis = ai_triage_service.triage_incident(incident=incident, force_refresh=force_refresh)
         refreshed_incident = repository.get_incident(incident_id) or incident
-        return jsonify({
+        is_durable = _is_postgres_repo(repository)
+        response_data = {
             "status": "success",
             "incident_id": incident_id,
             "ai_analysis": analysis.model_dump(),
             "incident": refreshed_incident.model_dump(),
-        }), 200
+            "storage_mode": "persistent" if is_durable else "in_memory",
+            "durable": is_durable,
+        }
+        if not is_durable:
+            response_data["storage_warning"] = (
+                "Operating on volatile in-memory storage. State will NOT persist across container restarts."
+            )
+        return jsonify(response_data), 200
 
     @app.route("/api/incidents/<incident_id>/actions/<action_id>/approval", methods=["POST"])
     def approve_action(incident_id: str, action_id: str):
@@ -1496,6 +1563,9 @@ def create_app(
         correlated_count = 0
         total_overrun = 0.0
         triaged_count = 0
+        triaged_live_count = 0
+        triaged_fallback_count = 0
+
         for inc in incidents:
             s_val = inc.severity.value.upper()
             by_sev[s_val] = by_sev.get(s_val, 0) + 1
@@ -1506,6 +1576,15 @@ def create_app(
                 total_overrun += float(inc.cost_impact.get("deviation_absolute", 0.0))
             if inc.ai_analysis and inc.ai_analysis.get("status") == "COMPLETED":
                 triaged_count += 1
+                if inc.ai_analysis.get("execution_mode") == "LIVE":
+                    triaged_live_count += 1
+                else:
+                    triaged_fallback_count += 1
+
+        is_postgres = _is_postgres_repo(repository)
+        actual_ai_client = ai_triage_service._client
+        ai_cfg = actual_ai_client.get_configuration_status() if hasattr(actual_ai_client, "get_configuration_status") else {}
+
         return jsonify({
             "total_incidents": total,
             "by_severity": by_sev,
@@ -1514,6 +1593,12 @@ def create_app(
             "total_financial_overrun": round(total_overrun, 2),
             "currency": "USD",
             "triaged_count": triaged_count,
+            "triaged_live_count": triaged_live_count,
+            "triaged_fallback_count": triaged_fallback_count,
+            "storage_mode": "persistent" if is_postgres else "in_memory",
+            "durable": is_postgres,
+            "database_degraded": getattr(app, "db_degraded", False),
+            "ai_provider_status": ai_cfg,
         }), 200
 
     return app

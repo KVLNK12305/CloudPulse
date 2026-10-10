@@ -43,6 +43,16 @@ CONTAINER_APP="${CONTAINER_APP_NAME:-cloudpulse-detection-worker}"
 INTENDED_MIN_REPLICAS="${INTENDED_MIN_REPLICAS:-0}"
 INTENDED_MAX_REPLICAS="${INTENDED_MAX_REPLICAS:-1}"
 
+# Azure OpenAI Resource Configuration
+OPENAI_ACCOUNT="${OPENAI_ACCOUNT_NAME:-cloudpulse-openai01}"
+OPENAI_DEPLOYMENT="${OPENAI_DEPLOYMENT_NAME:-cloudpulse-triage}"
+OPENAI_REGION="${OPENAI_REGION:-southeastasia}"
+OPENAI_ENDPOINT="${AZURE_OPENAI_ENDPOINT:-https://${OPENAI_ACCOUNT}.openai.azure.com/}"
+OPENAI_MODEL="${OPENAI_MODEL_NAME:-gpt-4.1-mini}"
+OPENAI_MODEL_VERSION="${OPENAI_MODEL_VERSION:-2025-04-14}"
+CONTAINER_APP_CLIENT_ID="${AZURE_CLIENT_ID:-070f1ae7-4c94-4a4f-83a1-5b56a86b14aa}"
+CONTAINER_APP_PRINCIPAL_ID="${AZURE_PRINCIPAL_ID:-e3d36ac0-8174-4213-8a00-896b18c66440}"
+
 # Default timeouts and intervals (seconds)
 POSTGRES_TIMEOUT_SECONDS="${POSTGRES_TIMEOUT_SECONDS:-300}"
 REPLICA_TIMEOUT_SECONDS="${REPLICA_TIMEOUT_SECONDS:-180}"
@@ -117,6 +127,23 @@ parse_common_args() {
                 ACTIVATION_TIMEOUT_SECONDS="$2"
                 shift 2
                 ;;
+            --openai-account)
+                if [[ -z "${2:-}" ]]; then
+                    log_error "Missing value for --openai-account"
+                    return 1
+                fi
+                OPENAI_ACCOUNT="$2"
+                OPENAI_ENDPOINT="https://${OPENAI_ACCOUNT}.openai.azure.com/"
+                shift 2
+                ;;
+            --deployment)
+                if [[ -z "${2:-}" ]]; then
+                    log_error "Missing value for --deployment"
+                    return 1
+                fi
+                OPENAI_DEPLOYMENT="$2"
+                shift 2
+                ;;
             --help|-h)
                 show_usage
                 exit 0
@@ -179,7 +206,9 @@ verify_subscription() {
 
     local active_sub_name
     active_sub_name=$(az account show --query "name" -o tsv 2>/dev/null || echo "Unknown")
-    log_info "Verified subscription context: ${active_sub_name} (${active_sub_id})"
+    if [[ "${OUTPUT_JSON:-false}" != "true" ]]; then
+        log_info "Verified subscription context: ${active_sub_name} (${active_sub_id})"
+    fi
     return 0
 }
 
@@ -241,6 +270,42 @@ get_revision_details() {
         -o json 2>/dev/null
 }
 
+# Azure OpenAI Resource Inspection Helpers (Strictly Read-Only)
+get_openai_account_details() {
+    az cognitiveservices account show \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$OPENAI_ACCOUNT" \
+        --query "{name:name, provisioningState:properties.provisioningState, endpoint:properties.endpoint, location:location, kind:kind, sku:sku.name}" \
+        -o json 2>/dev/null
+}
+
+get_openai_deployment_details() {
+    local deployment_name="${1:-$OPENAI_DEPLOYMENT}"
+    az cognitiveservices account deployment show \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$OPENAI_ACCOUNT" \
+        --deployment-name "$deployment_name" \
+        --query "{name:name, provisioningState:properties.provisioningState, model:properties.model.name, version:properties.model.version, format:properties.model.format, sku:sku.name, capacity:sku.capacity}" \
+        -o json 2>/dev/null
+}
+
+list_openai_deployments() {
+    az cognitiveservices account deployment list \
+        --resource-group "$RESOURCE_GROUP" \
+        --name "$OPENAI_ACCOUNT" \
+        --query "[].{name:name, provisioningState:properties.provisioningState, model:properties.model.name, version:properties.model.version}" \
+        -o json 2>/dev/null
+}
+
+check_openai_role_assignment() {
+    local principal_id="${1:-$CONTAINER_APP_PRINCIPAL_ID}"
+    az role assignment list \
+        --assignee "$principal_id" \
+        --all \
+        --query "[?roleDefinitionName=='Cognitive Services OpenAI User' || roleDefinitionName=='Cognitive Services OpenAI Contributor'].{role:roleDefinitionName, scope:scope}" \
+        -o json 2>/dev/null
+}
+
 # ------------------------------------------------------------------------------
 # Application Health Check Helper
 # ------------------------------------------------------------------------------
@@ -276,9 +341,14 @@ classify_deployment() {
     local replica_count="$5"
     local rev_running_state="$6"
     local app_healthy="$7"
+    local ai_mode="${8:-LIVE}"
 
     # ACTIVE: dependencies ready and application health check passes
     if [[ "$pg_state" == "Ready" && "$ca_provisioning" == "Succeeded" && "$app_healthy" == "true" ]]; then
+        if [[ "$ai_mode" == "FALLBACK" || "$ai_mode" == "UNAVAILABLE" || "$ai_mode" == "DEGRADED" || "$ai_mode" == "NOT_DEPLOYED" ]]; then
+            echo "ACTIVE_DEGRADED"
+            return 0
+        fi
         echo "ACTIVE"
         return 0
     fi

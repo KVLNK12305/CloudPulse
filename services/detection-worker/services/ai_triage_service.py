@@ -12,7 +12,16 @@ from models.ai_context import (
 )
 from models.finding import Finding
 from models.incident import Incident
-from services.azure_ai_client import AzureAIClient, AzureAIError
+from services.azure_ai_client import (
+    AzureAIClient,
+    AzureAIError,
+    AzureAIAuthError,
+    AzureAIPermissionDeniedError,
+    AzureAIRateLimitError,
+    AzureAITimeoutError,
+    AzureAIUnavailableError,
+    AzureAISchemaError,
+)
 
 logger = logging.getLogger("cloudpulse.services.ai_triage")
 
@@ -109,37 +118,80 @@ class AITriageService:
                 context=safe_context,
             )
 
-            # Ensure timestamp & model name
+            # Ensure timestamp
             if "triage_timestamp" not in raw_response:
                 raw_response["triage_timestamp"] = now_iso
-            if "model_identifier" not in raw_response:
-                raw_response["model_identifier"] = getattr(self._client, "deployment_name", "azure-openai/gpt-4o")
+
+            # Resolve execution mode, provider, and model identifier based on actual execution path
+            exec_mode = raw_response.get("execution_mode")
+            if not exec_mode:
+                if raw_response.get("model_identifier") == "cloudpulse-deterministic-synthesizer/v1":
+                    exec_mode = "FALLBACK"
+                else:
+                    exec_mode = "LIVE"
+
+            raw_response["execution_mode"] = exec_mode
+            raw_response["provider_status"] = exec_mode
+
+            if exec_mode == "FALLBACK":
+                raw_response["provider"] = "deterministic-synthesizer"
+                raw_response["model_identifier"] = "cloudpulse-deterministic-synthesizer/v1"
+            else:
+                raw_response["provider"] = "azure-openai"
+                if "model_identifier" not in raw_response or raw_response["model_identifier"] == "cloudpulse-deterministic-synthesizer/v1":
+                    raw_response["model_identifier"] = getattr(self._client, "model_identifier", getattr(self._client, "deployment_name", "gpt-4.1-mini"))
 
             raw_response["status"] = "COMPLETED"
             raw_response["error_message"] = None
+            raw_response["error_category"] = None
 
             # Validate response schema
             analysis = AITriageAnalysis(**raw_response)
 
         except Exception as ex:
             logger.warning("AI triage generation degraded/failed for %s: %s", incident.incident_id, str(ex))
-            # Graceful degradation fallback — Incident remains valid!
+
+            # Categorize error safely without exposing credentials or internal tokens
+            error_cat = "UNKNOWN_ERROR"
+            if isinstance(ex, AzureAIAuthError):
+                error_cat = "AUTH_ERROR"
+            elif isinstance(ex, AzureAIRateLimitError):
+                error_cat = "RATE_LIMIT"
+            elif isinstance(ex, AzureAITimeoutError):
+                error_cat = "TIMEOUT"
+            elif isinstance(ex, AzureAIUnavailableError):
+                error_cat = "SERVICE_UNAVAILABLE"
+            elif isinstance(ex, (AzureAISchemaError, json.JSONDecodeError, ValueError)) or "json" in str(ex).lower() or "schema" in str(ex).lower():
+                error_cat = "SCHEMA_ERROR"
+
+            clean_error = str(ex)
+            for sensitive_kw in ("Bearer", "api-key", "token", "password", "secret"):
+                if sensitive_kw in clean_error:
+                    clean_error = f"{error_cat}: Request failed with security credentials redacted"
+                    break
+
+            # Graceful degradation fallback — Incident remains fully valid!
+            # Never attribute failed/unavailable requests to a live model identifier
             analysis = AITriageAnalysis(
                 summary="AI analysis unavailable. Deterministic detection and correlation remain fully operational.",
                 risk_assessment="Assessment unavailable. Refer to deterministic detector severity and evidence.",
                 likely_scenario="AI interpretation unavailable at this time.",
                 security_impact="Review individual finding evidence records.",
                 financial_impact="Review correlated cost_impact records.",
-                facts=["Deterministic finding records active in PostgreSQL repository."],
+                facts=["Deterministic finding records active in repository."],
                 inferences=[],
                 key_evidence=[],
                 recommended_actions=[],
                 confidence=0.0,
-                limitations=[f"Azure AI triage service unavailable: {str(ex)}"],
+                limitations=[f"Azure AI triage unavailable ({error_cat}): {clean_error}"],
                 triage_timestamp=now_iso,
-                model_identifier=getattr(self._client, "deployment_name", "azure-openai/gpt-4o"),
+                model_identifier="none",
                 status="UNAVAILABLE",
-                error_message=str(ex),
+                execution_mode="UNAVAILABLE",
+                provider_status="UNAVAILABLE",
+                provider="none",
+                error_category=error_cat,
+                error_message=clean_error,
             )
 
         # 5. Invariant Checks: Ensure deterministic fields are never polluted
@@ -164,6 +216,8 @@ class AITriageService:
                 "activity_log_event_id": f"ai-triage-{incident.incident_id}",
                 "correlation_metadata": {
                     "model": analysis.model_identifier,
+                    "execution_mode": analysis.execution_mode,
+                    "provider": analysis.provider,
                     "confidence": analysis.confidence,
                     "actions_count": len(analysis.recommended_actions),
                 },

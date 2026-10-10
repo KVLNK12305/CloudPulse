@@ -231,6 +231,18 @@ class AIKeyEvidenceItem(BaseModel):
     observation: str = Field(..., description="Direct factual observation")
 
 
+class AIExecutionMode(str, Enum):
+    LIVE = "LIVE"
+    FALLBACK = "FALLBACK"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
+class AIProviderType(str, Enum):
+    AZURE_OPENAI = "azure-openai"
+    DETERMINISTIC_SYNTHESIZER = "deterministic-synthesizer"
+    NONE = "none"
+
+
 class AITriageAnalysis(BaseModel):
     """
     Structured domain model for the validated CloudPulse AI triage response.
@@ -251,8 +263,28 @@ class AITriageAnalysis(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc).isoformat(),
         description="ISO-8601 UTC timestamp of AI triage execution",
     )
-    model_identifier: str = Field(default="azure-openai/gpt-4o", description="Model/deployment name used")
+    model_identifier: str = Field(
+        default="cloudpulse-deterministic-synthesizer/v1",
+        description="Model/deployment name or synthesizer engine identifier",
+    )
     status: str = Field(default="COMPLETED", description="Triage status: COMPLETED, UNAVAILABLE, or ERROR")
+    execution_mode: str = Field(
+        default="FALLBACK",
+        description="Explicit execution mode: LIVE, FALLBACK, or UNAVAILABLE",
+    )
+    provider_status: str = Field(
+        default="FALLBACK",
+        description="Explicit provider execution state: LIVE, FALLBACK, or UNAVAILABLE",
+    )
+    provider: str = Field(
+        default="deterministic-synthesizer",
+        description="Inference provider used: azure-openai, deterministic-synthesizer, or none",
+    )
+    latency_ms: Optional[float] = Field(default=None, description="Inference latency in milliseconds")
+    error_category: Optional[str] = Field(
+        default=None,
+        description="Sanitized error classification: AUTH_ERROR, RATE_LIMIT, TIMEOUT, SERVICE_UNAVAILABLE, SCHEMA_ERROR, CONFIGURATION_ERROR",
+    )
     error_message: Optional[str] = Field(None, description="Error detail if triage degraded or failed")
 
     @field_validator("confidence")

@@ -58,6 +58,15 @@ while [[ $# -gt 0 ]]; do
             RESOURCE_GROUP="${2:-}"
             shift 2
             ;;
+        --openai-account)
+            OPENAI_ACCOUNT="${2:-}"
+            OPENAI_ENDPOINT="https://${OPENAI_ACCOUNT}.openai.azure.com/"
+            shift 2
+            ;;
+        --deployment)
+            OPENAI_DEPLOYMENT="${2:-}"
+            shift 2
+            ;;
         --help|-h)
             show_usage
             exit 0
@@ -153,14 +162,29 @@ fi
 app_health_status="SKIPPED"
 app_health_detail="Application is scaled to zero / dormant (HTTP probe skipped to avoid scaling)"
 app_healthy=false
+h_storage="unknown"
+h_db_degraded=false
+h_db_reason=""
+ai_runtime_mode="UNKNOWN"
+ai_runtime_model="UNKNOWN"
+ai_provider_status="UNKNOWN"
 
 if [[ "$pg_state" == "Ready" && "$replica_count" -gt 0 && "$ca_fqdn" != "UNKNOWN" ]]; then
     if health_json=$(check_application_health "$ca_fqdn" 10); then
         app_healthy=true
         h_status=$(echo "$health_json" | jq -r '.status // "unknown"')
         h_storage=$(echo "$health_json" | jq -r '.storage // "unknown"')
+        h_db_degraded=$(echo "$health_json" | jq -r '.database.degraded // false')
+        h_db_reason=$(echo "$health_json" | jq -r '.database.degraded_reason // ""')
+        ai_runtime_mode=$(echo "$health_json" | jq -r '.ai_provider.execution_mode // "UNKNOWN"')
+        ai_runtime_model=$(echo "$health_json" | jq -r '.ai_provider.model_identifier // "UNKNOWN"')
+        ai_provider_status=$(echo "$health_json" | jq -r '.ai_provider.status // "UNKNOWN"')
+
         app_health_status="HEALTHY"
-        app_health_detail="Status: ${h_status}, Storage: ${h_storage}"
+        if [[ "$h_status" == "degraded" || "$h_db_degraded" == "true" ]]; then
+            app_health_status="DEGRADED"
+        fi
+        app_health_detail="Status: ${h_status}, Storage: ${h_storage}, AI Mode: ${ai_runtime_mode}"
     else
         app_health_status="UNHEALTHY"
         app_health_detail="HTTP probe to https://${ca_fqdn}/health timed out or returned non-200"
@@ -171,7 +195,49 @@ elif [[ "$pg_state" != "Ready" ]]; then
 fi
 
 # ------------------------------------------------------------------------------
-# 6. Deployment Classification
+# 6. Inspect Azure OpenAI Account & Model Deployment (Strictly Read-Only)
+# ------------------------------------------------------------------------------
+oai_json=$(get_openai_account_details || echo "{}")
+oai_name=$(echo "$oai_json" | jq -r '.name // "'"$OPENAI_ACCOUNT"'"')
+oai_state=$(echo "$oai_json" | jq -r '.provisioningState // "NOT_PROVISIONED"')
+oai_endpoint=$(echo "$oai_json" | jq -r '.endpoint // "'"$OPENAI_ENDPOINT"'"')
+oai_loc=$(echo "$oai_json" | jq -r '.location // "'"$OPENAI_REGION"'"')
+oai_sku=$(echo "$oai_json" | jq -r 'if (.sku | type) == "object" then (.sku.name // "Standard") else (.sku // "Standard") end')
+
+dep_json=$(get_openai_deployment_details "$OPENAI_DEPLOYMENT" || echo "{}")
+dep_state=$(echo "$dep_json" | jq -r '.provisioningState // "NOT_DEPLOYED"')
+dep_model=$(echo "$dep_json" | jq -r '.model // "'"$OPENAI_MODEL"'"')
+dep_ver=$(echo "$dep_json" | jq -r '.version // "'"$OPENAI_MODEL_VERSION"'"')
+
+role_json=$(check_openai_role_assignment || echo "[]")
+role_count=$(echo "$role_json" | jq 'if type=="array" then length else 0 end' 2>/dev/null || echo "0")
+if [[ "$role_count" -gt 0 ]]; then
+    rbac_status="ASSIGNED"
+    rbac_detail="Cognitive Services OpenAI User assigned"
+else
+    rbac_status="MISSING"
+    rbac_detail="Role 'Cognitive Services OpenAI User' missing for identity 'cloudpulse-identity'"
+fi
+
+# Determine truthful AI execution state
+ai_eval_mode="LIVE"
+if [[ "$ai_runtime_mode" != "UNKNOWN" ]]; then
+    ai_eval_mode="$ai_runtime_mode"
+else
+    if [[ "$dep_state" != "Succeeded" ]]; then
+        ai_eval_mode="FALLBACK"
+        ai_runtime_mode="FALLBACK (Deployment not created; local synthesis active)"
+    elif [[ "$rbac_status" == "MISSING" ]]; then
+        ai_eval_mode="FALLBACK"
+        ai_runtime_mode="FALLBACK (Identity role missing; local synthesis active)"
+    else
+        ai_eval_mode="CONFIGURED"
+        ai_runtime_mode="DORMANT (Configured and ready)"
+    fi
+fi
+
+# ------------------------------------------------------------------------------
+# 7. Deployment Classification
 # ------------------------------------------------------------------------------
 overall_status="UNKNOWN"
 if [[ "$replica_query_ok" == "true" ]]; then
@@ -182,11 +248,12 @@ if [[ "$replica_query_ok" == "true" ]]; then
         "$ca_max" \
         "$replica_count" \
         "$rev_running_state" \
-        "$app_healthy")
+        "$app_healthy" \
+        "$ai_eval_mode")
 fi
 
 # ------------------------------------------------------------------------------
-# 7. Output Presentation
+# 8. Output Presentation
 # ------------------------------------------------------------------------------
 if [[ "$OUTPUT_JSON" == "true" ]]; then
     cat <<EOF
@@ -201,7 +268,9 @@ if [[ "$OUTPUT_JSON" == "true" ]]; then
     "state": "${pg_state}",
     "sku": "${pg_sku}",
     "version": "${pg_version}",
-    "fqdn": "${pg_fqdn}"
+    "fqdn": "${pg_fqdn}",
+    "storage": "${h_storage}",
+    "degraded": ${h_db_degraded:-false}
   },
   "container_app": {
     "name": "${CONTAINER_APP}",
@@ -217,6 +286,21 @@ if [[ "$OUTPUT_JSON" == "true" ]]; then
     "actual_replica_count": ${replica_count:-0},
     "replica_states": "${replica_states}",
     "fqdn": "${ca_fqdn}"
+  },
+  "azure_openai": {
+    "account": "${oai_name}",
+    "endpoint": "${oai_endpoint}",
+    "provisioning_state": "${oai_state}",
+    "region": "${oai_loc}",
+    "sku": "${oai_sku}",
+    "deployment_name": "${OPENAI_DEPLOYMENT}",
+    "deployment_state": "${dep_state}",
+    "intended_model": "${dep_model}",
+    "model_version": "${dep_ver}",
+    "rbac_status": "${rbac_status}",
+    "rbac_detail": "${rbac_detail}",
+    "runtime_execution_mode": "${ai_runtime_mode}",
+    "model_identifier": "${ai_runtime_model}"
   },
   "application_health": {
     "status": "${app_health_status}",
@@ -237,7 +321,10 @@ echo -e "Location         : ${COLOR_CYAN}${AZURE_REGION}${COLOR_RESET}"
 
 case "$overall_status" in
     ACTIVE)
-        echo -e "Overall Status   : ${COLOR_BOLD}${COLOR_GREEN}● ACTIVE${COLOR_RESET} (Operational, dependencies ready, app healthy)"
+        echo -e "Overall Status   : ${COLOR_BOLD}${COLOR_GREEN}● ACTIVE${COLOR_RESET} (Operational, dependencies ready, AI live)"
+        ;;
+    ACTIVE_DEGRADED)
+        echo -e "Overall Status   : ${COLOR_BOLD}${COLOR_YELLOW}◐ ACTIVE (DEGRADED)${COLOR_RESET} (Core operational, AI in deterministic fallback)"
         ;;
     DORMANT)
         echo -e "Overall Status   : ${COLOR_BOLD}${COLOR_BLUE}○ DORMANT${COLOR_RESET} (Compute minimized, DB stopped, scale-to-zero)"
@@ -261,6 +348,11 @@ else
 fi
 echo -e "  SKU / Engine   : ${pg_sku} / PostgreSQL v${pg_version}"
 echo -e "  Endpoint FQDN  : ${pg_fqdn}"
+echo -e "  Storage Engine : ${h_storage}"
+if [[ "$h_storage" == "in_memory" || "$h_db_degraded" == "true" ]]; then
+    echo -e "  ${COLOR_BOLD}${COLOR_RED}⚠ STORAGE WARNING: Database is operating in ephemeral in-memory fallback!${COLOR_RESET}"
+    echo -e "  ${COLOR_RED}  Records will be lost on Container App restart. Persistent PostgreSQL is disconnected.${COLOR_RESET}"
+fi
 
 echo -e "\n${COLOR_BOLD}Compute (Azure Container Apps):${COLOR_RESET}"
 echo -e "  App Name       : ${CONTAINER_APP}"
@@ -272,18 +364,37 @@ echo -e "  Latest Revision: ${ca_latest_rev} (State: ${rev_running_state}, Repli
 echo -e "  Active Replicas: ${COLOR_BOLD}${replica_count}${COLOR_RESET} (${replica_states})"
 echo -e "  Ingress FQDN   : https://${ca_fqdn}"
 
+echo -e "\n${COLOR_BOLD}AI Service (Azure OpenAI):${COLOR_RESET}"
+echo -e "  Account Name   : ${oai_name} (State: ${oai_state}, Region: ${oai_loc})"
+echo -e "  Endpoint FQDN  : ${oai_endpoint}"
+if [[ "$dep_state" == "Succeeded" ]]; then
+    echo -e "  Deployment     : ${OPENAI_DEPLOYMENT} (State: ${COLOR_GREEN}${dep_state}${COLOR_RESET}, Model: ${dep_model} v${dep_ver})"
+else
+    echo -e "  Deployment     : ${OPENAI_DEPLOYMENT} (${COLOR_YELLOW}${dep_state}${COLOR_RESET} - Model not deployed)"
+fi
+if [[ "$rbac_status" == "ASSIGNED" ]]; then
+    echo -e "  Managed RBAC   : ${COLOR_GREEN}${rbac_status}${COLOR_RESET} (${rbac_detail})"
+else
+    echo -e "  Managed RBAC   : ${COLOR_YELLOW}${rbac_status}${COLOR_RESET} (${rbac_detail})"
+fi
+echo -e "  Execution Mode : ${COLOR_BOLD}${ai_runtime_mode}${COLOR_RESET}"
+
 echo -e "\n${COLOR_BOLD}Application Health:${COLOR_RESET}"
 echo -e "  Probe Status   : ${app_health_status}"
 echo -e "  Details        : ${app_health_detail}"
 
 if [[ "$overall_status" == "DORMANT" ]]; then
     echo -e "\n${COLOR_BOLD}${COLOR_BLUE}ℹ Cost-Saving Mode Active:${COLOR_RESET}"
-    echo -e "  Idle compute costs are currently minimized."
-    echo -e "  Residual charges continue for retained storage (PostgreSQL 32GB, LAW, ACR images)."
-    echo -e "  To resume service, run: ${COLOR_BOLD}./scripts/cloudpulse-on.sh${COLOR_RESET}"
-elif [[ "$overall_status" == "ACTIVE" ]]; then
+    echo -e "  • Idle compute costs are currently minimized (0 replicas, DB stopped)."
+    echo -e "  • Residual charges continue for retained storage (PostgreSQL 32GB, LAW, ACR images)."
+    echo -e "  • Azure OpenAI account remains provisioned but incurs zero token inference charges when dormant."
+    echo -e "  • To resume service, run: ${COLOR_BOLD}./scripts/cloudpulse-on.sh${COLOR_RESET}"
+elif [[ "$overall_status" =~ "ACTIVE" ]]; then
     echo -e "\n${COLOR_BOLD}${COLOR_GREEN}✔ Service Operational:${COLOR_RESET}"
     echo -e "  Dashboard URL  : ${COLOR_BOLD}https://${ca_fqdn}/dashboard${COLOR_RESET}"
+    if [[ "$overall_status" == "ACTIVE_DEGRADED" ]]; then
+        echo -e "  ${COLOR_YELLOW}Note: AI is operating in deterministic FALLBACK mode. Core detection remains operational.${COLOR_RESET}"
+    fi
     echo -e "  To shut down cleanly, run: ${COLOR_BOLD}./scripts/cloudpulse-off.sh${COLOR_RESET}"
 elif [[ "$overall_status" == "PARTIAL" ]]; then
     echo -e "\n${COLOR_BOLD}${COLOR_YELLOW}⚠ Partial Deployment:${COLOR_RESET}"

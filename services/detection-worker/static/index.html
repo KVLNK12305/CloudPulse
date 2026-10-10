@@ -709,6 +709,21 @@
       text-transform: uppercase;
       letter-spacing: 0.05em;
     }
+    .ai-pill.live {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(52, 211, 153, 0.25));
+      border: 1px solid rgba(52, 211, 153, 0.5);
+      color: #34d399;
+    }
+    .ai-pill.fallback {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(234, 179, 8, 0.2));
+      border: 1px solid rgba(234, 179, 8, 0.5);
+      color: #facc15;
+    }
+    .ai-pill.unavailable {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(244, 63, 94, 0.2));
+      border: 1px solid rgba(239, 68, 68, 0.5);
+      color: #f87171;
+    }
     .ai-block-title {
       font-size: 0.74rem;
       text-transform: uppercase;
@@ -934,6 +949,11 @@
 
     <!-- Right Actions & Azure Live Connection Pill -->
     <div class="topbar-actions">
+      <div class="azure-connection-badge" id="storage-status-badge" title="Persistence State">
+        <div class="azure-connection-dot" id="storage-status-dot" style="background-color: var(--accent-cyan);"></div>
+        <span id="storage-status-text">Storage: Checking...</span>
+      </div>
+
       <div class="azure-connection-badge" title="Live connection to Azure Resource Manager and Cost Management APIs">
         <div class="azure-connection-dot"></div>
         <span id="azure-sub-display">Azure Connected</span>
@@ -999,10 +1019,10 @@
         <div class="kpi-card ai">
           <div class="kpi-label">
             <span>AI Triaged</span>
-            <span class="kpi-source-tag">Azure OpenAI</span>
+            <span class="kpi-source-tag" id="ov-ai-source-tag">Deterministic Fallback</span>
           </div>
           <span class="kpi-value" id="ov-ai-count" style="color: #c084fc;">0</span>
-          <span class="kpi-subtext">Autonomous synthesis</span>
+          <span class="kpi-subtext" id="ov-ai-mode-text">Autonomous synthesis</span>
         </div>
       </div>
 
@@ -1373,14 +1393,39 @@
       if (icon) icon.style.animation = 'spin 0.6s linear';
 
       let apiErrors = [];
+      let dbDegradedWarning = null;
 
       try {
-        const [incResp, ovResp, resResp, costResp] = await Promise.all([
+        const [incResp, ovResp, resResp, costResp, healthResp] = await Promise.all([
           fetch('/api/incidents?limit=100').catch(e => ({ ok: false, status: 0, error: e.message })),
           fetch('/api/estate/overview').catch(e => ({ ok: false, status: 0, error: e.message })),
           fetch('/api/resources').catch(e => ({ ok: false, status: 0, error: e.message })),
           fetch('/api/finops/costs').catch(e => ({ ok: false, status: 0, error: e.message })),
+          fetch('/health').catch(e => ({ ok: false, status: 0, error: e.message })),
         ]);
+
+        if (healthResp && healthResp.ok) {
+          const hData = await healthResp.json();
+          const sBadge = document.getElementById('storage-status-badge');
+          const sDot = document.getElementById('storage-status-dot');
+          const sText = document.getElementById('storage-status-text');
+          if (sBadge && sDot && sText) {
+            if (hData.database?.degraded) {
+              sDot.style.backgroundColor = '#f59e0b';
+              sText.innerText = 'Storage: Volatile In-Memory (Postgres Unreachable)';
+              sBadge.style.borderColor = 'rgba(245, 158, 11, 0.5)';
+              dbDegradedWarning = hData.database.degradation_reason || 'PostgreSQL connection failed; running in volatile in-memory fallback. Incidents are ephemeral.';
+            } else if (hData.database?.connected) {
+              sDot.style.backgroundColor = '#10b981';
+              sText.innerText = 'Storage: PostgreSQL (Durable)';
+              sBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+            } else {
+              sDot.style.backgroundColor = '#38bdf8';
+              sText.innerText = 'Storage: In-Memory (Local)';
+              sBadge.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+            }
+          }
+        }
 
         if (incResp && incResp.ok) {
           const incData = await incResp.json();
@@ -1420,19 +1465,27 @@
           if (activeTab === 'finops') renderFinopsTab();
         }
 
-        // Render overview alert if any critical service failed
+        // Render overview alert if database degraded or telemetry service failed
         const ovAlert = document.getElementById('overview-alert-container');
         if (ovAlert) {
+          let bannersHtml = '';
+          if (dbDegradedWarning) {
+            bannersHtml += `
+              <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.5); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 12px; font-size: 0.8rem; color: #fde68a; display: flex; justify-content: space-between; align-items: center;">
+                <div><strong>⚠️ Database Degradation:</strong> ${escapeHtml(dbDegradedWarning)}</div>
+                <span class="source-badge" style="background: rgba(245, 158, 11, 0.25); color: #f59e0b; font-weight: 700;">VOLATILE STORAGE</span>
+              </div>
+            `;
+          }
           if (apiErrors.length > 0) {
-            ovAlert.innerHTML = `
+            bannersHtml += `
               <div style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 16px; font-size: 0.78rem; color: #fca5a5; display: flex; justify-content: space-between; align-items: center;">
                 <div><strong>⚠️ Telemetry Service Notice:</strong> ${apiErrors.map(e => escapeHtml(e)).join('; ')}</div>
                 <button class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.68rem;" onclick="loadDashboardData()">Retry Telemetry ↻</button>
               </div>
             `;
-          } else {
-            ovAlert.innerHTML = '';
           }
+          ovAlert.innerHTML = bannersHtml;
         }
 
         // Auto-select first incident if on incidents tab
@@ -1489,9 +1542,39 @@
         : (estateOverview.security?.correlated_incidents || 0);
       document.getElementById('ov-correlated-count').innerText = correlatedCount;
 
-      // Count triaged incidents directly
-      const triaged = incidents.filter(i => i.ai_analysis && i.ai_analysis.status === 'COMPLETED').length;
+      // Count triaged incidents with explicit LIVE vs FALLBACK distinction
+      const triagedIncidents = incidents.filter(i => i.ai_analysis && i.ai_analysis.status === 'COMPLETED');
+      const triaged = triagedIncidents.length;
+      const liveTriaged = triagedIncidents.filter(i => i.ai_analysis.execution_mode === 'LIVE' || i.ai_analysis.provider_status === 'LIVE').length;
+      const fallbackTriaged = triaged - liveTriaged;
+
       document.getElementById('ov-ai-count').innerText = triaged;
+
+      const aiTag = document.getElementById('ov-ai-source-tag');
+      const aiSubtext = document.getElementById('ov-ai-mode-text');
+      if (aiTag && aiSubtext) {
+        if (triaged === 0) {
+          aiTag.innerText = 'Deterministic Fallback';
+          aiTag.style.background = 'rgba(139, 92, 246, 0.2)';
+          aiTag.style.color = '#c084fc';
+          aiSubtext.innerText = 'Offline synthesizer ready';
+        } else if (liveTriaged > 0 && fallbackTriaged === 0) {
+          aiTag.innerText = 'Azure OpenAI (Live)';
+          aiTag.style.background = 'rgba(52, 211, 153, 0.2)';
+          aiTag.style.color = '#34d399';
+          aiSubtext.innerText = 'Live inference via gpt-4.1-mini';
+        } else if (liveTriaged > 0 && fallbackTriaged > 0) {
+          aiTag.innerText = 'Hybrid (Live + Fallback)';
+          aiTag.style.background = 'rgba(56, 189, 248, 0.2)';
+          aiTag.style.color = '#38bdf8';
+          aiSubtext.innerText = `${liveTriaged} Live / ${fallbackTriaged} Fallback`;
+        } else {
+          aiTag.innerText = 'Deterministic Fallback';
+          aiTag.style.background = 'rgba(234, 179, 8, 0.2)';
+          aiTag.style.color = '#eab308';
+          aiSubtext.innerText = 'Grounded offline synthesis';
+        }
+      }
 
       // Resource Distribution
       const distContainer = document.getElementById('ov-resource-dist');
@@ -2045,6 +2128,9 @@
       const costImpact = inc.cost_impact;
       const aiAnalysis = inc.ai_analysis;
       const isTriaged = aiAnalysis && aiAnalysis.status === 'COMPLETED';
+      const isUnavailable = aiAnalysis && (aiAnalysis.status === 'UNAVAILABLE' || aiAnalysis.execution_mode === 'UNAVAILABLE');
+      const isLive = isTriaged && (aiAnalysis.execution_mode === 'LIVE' || aiAnalysis.provider_status === 'LIVE');
+      const isFallback = isTriaged && !isLive;
       const isDemo = isDemoIncident(inc);
 
       const demoBanner = isDemo ? `
@@ -2128,23 +2214,67 @@
         `;
       }
 
+      // Resolve execution pill and attribution badge
+      let pillClass = 'ai-pill';
+      let pillLabel = '🤖 Azure AI Triage';
+      let modeBadge = '';
+      let noticeBanner = '';
+
+      if (isLive) {
+        pillClass = 'ai-pill live';
+        pillLabel = '🟢 Azure OpenAI (Live)';
+        modeBadge = `
+          <span class="source-badge" style="background: rgba(52, 211, 153, 0.2); color: #34d399; font-weight: 700;">LIVE INFERENCE</span>
+          <span style="font-size: 0.72rem; color: #a78bfa; font-family: var(--font-mono);">${escapeHtml(aiAnalysis.model_identifier)}</span>
+          <span style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);">${(aiAnalysis.confidence * 100).toFixed(0)}% Conf</span>
+          ${aiAnalysis.latency_ms ? `<span style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);">${aiAnalysis.latency_ms}ms</span>` : ''}
+        `;
+      } else if (isFallback) {
+        pillClass = 'ai-pill fallback';
+        pillLabel = '🟡 Deterministic Fallback';
+        modeBadge = `
+          <span class="source-badge" style="background: rgba(234, 179, 8, 0.2); color: #eab308; font-weight: 700;">FALLBACK</span>
+          <span style="font-size: 0.72rem; color: #a78bfa; font-family: var(--font-mono);">${escapeHtml(aiAnalysis.model_identifier)}</span>
+          <span style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);">${(aiAnalysis.confidence * 100).toFixed(0)}% Conf</span>
+          ${aiAnalysis.latency_ms ? `<span style="font-size: 0.72rem; color: var(--text-dim); font-family: var(--font-mono);">${aiAnalysis.latency_ms}ms</span>` : ''}
+        `;
+        noticeBanner = `
+          <div style="background: rgba(234, 179, 8, 0.08); border-left: 3px solid #eab308; padding: 8px 12px; margin-top: 10px; border-radius: 0 4px 4px 0; font-size: 0.78rem; color: #fde68a;">
+            <strong style="color: #eab308;">Deterministic Offline Synthesis:</strong> This analysis was synthesized offline by CloudPulse's rule engine using verified telemetry findings. It was <u>not</u> generated by a live Azure OpenAI model.
+          </div>
+        `;
+      } else if (isUnavailable) {
+        pillClass = 'ai-pill unavailable';
+        pillLabel = '🔴 AI Triage Unavailable';
+        modeBadge = `
+          <span class="source-badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171; font-weight: 700;">UNAVAILABLE</span>
+          ${aiAnalysis.error_category ? `<span style="font-size: 0.72rem; color: #f87171; font-family: var(--font-mono);">${escapeHtml(aiAnalysis.error_category)}</span>` : ''}
+        `;
+        noticeBanner = `
+          <div style="background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444; padding: 10px 14px; margin-top: 10px; border-radius: 0 4px 4px 0; font-size: 0.8rem; color: #fca5a5;">
+            <strong>Inference Service Unavailable:</strong> ${escapeHtml(aiAnalysis.error_message || 'Azure AI service failed')}. Error Category: <code>${escapeHtml(aiAnalysis.error_category || 'SERVICE_UNAVAILABLE')}</code>. Deterministic detection severity and correlated cost impact remain authoritative.
+          </div>
+        `;
+      }
+
       html += `
         <div class="ai-card">
           <div class="ai-header">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <div class="ai-pill">
-                <span>🤖 Azure AI Triage</span>
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+              <div class="${pillClass}">
+                <span>${pillLabel}</span>
               </div>
-              ${isTriaged ? `<span style="font-size: 0.72rem; color: #a78bfa; font-family: var(--font-mono);">${aiAnalysis.model_identifier} (${(aiAnalysis.confidence * 100).toFixed(0)}% Conf)</span>` : ''}
+              ${modeBadge}
             </div>
 
             <div>
               <button class="btn btn-accent" id="btn-trigger-ai" onclick="triggerAITriage('${inc.incident_id}')">
                 <span id="ai-spinner" style="display:none;" class="loader"></span>
-                <span>${isTriaged ? '⚡ Re-Run AI Triage' : '⚡ Generate AI Triage'}</span>
+                <span>${(isTriaged || isUnavailable) ? '⚡ Re-Run AI Triage' : '⚡ Generate AI Triage'}</span>
               </button>
             </div>
           </div>
+          ${noticeBanner}
       `;
 
       if (isTriaged) {

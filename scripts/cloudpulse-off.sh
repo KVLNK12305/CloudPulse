@@ -296,9 +296,16 @@ if [[ "$DRY_RUN" == "true" ]]; then
 fi
 
 log_success "CloudPulse successfully transitioned to DORMANT mode."
-echo -e "\n${COLOR_BOLD}${COLOR_BLUE}ℹ Cost & Residual Resource Notice:${COLOR_RESET}"
-echo -e "  • Idle compute charges for Container Apps and PostgreSQL are now 0."
-echo -e "  • Residual charges continue for retained storage (PostgreSQL 32GB disk, LAW data, ACR images)."
+echo -e "\n${COLOR_BOLD}${COLOR_BLUE}ℹ Resource Disposition & Cost Notice:${COLOR_RESET}"
+echo -e "  • Stopped Resources (Zero Active Compute Charge):"
+echo -e "      - Container App compute replicas: 0 active replicas (${CONTAINER_APP})"
+echo -e "      - Database compute              : Stopped (${POSTGRES_SERVER})"
+echo -e "  • Preserved & Retained Resources (Zero Deletions):"
+echo -e "      - Azure OpenAI Account          : ${OPENAI_ACCOUNT} (Provisioned PaaS; 0 inference token charges while dormant)"
+echo -e "      - Model Deployments             : ${OPENAI_DEPLOYMENT} (Retained intact; never deleted during OFF)"
+echo -e "      - Persistent Storage & Data     : PostgreSQL 32GB disk, LAW telemetry, ACR container images"
+echo -e "      - Security & Identity           : Managed identities and RBAC role assignments unmodified"
+echo -e "      - Infrastructure State          : Terraform state and resource groups preserved"
 echo -e "  • Note: Azure Database for PostgreSQL may automatically restart after 7 days if not started sooner."
 echo -e "  • To resume operations safely, run: ${COLOR_BOLD}./scripts/cloudpulse-on.sh${COLOR_RESET}\n"
 exit 0

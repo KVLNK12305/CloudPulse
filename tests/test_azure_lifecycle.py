@@ -34,7 +34,7 @@ if [[ -n "$fail_match" && "$cmd" =~ $fail_match ]]; then
     exit 1
 fi
 
-if [[ "$cmd" =~ "account show" ]]; then
+if [[ "$cmd" =~ "account show" && ! "$cmd" =~ "cognitiveservices" ]]; then
     sub_id=$(get_state "sub_id")
     if [[ -z "$sub_id" ]]; then sub_id="90b900ea-4273-4b40-a343-091aecfe2911"; fi
     if [[ "$cmd" =~ "--query id" ]]; then
@@ -54,6 +54,7 @@ EOF
 fi
 
 if [[ "$cmd" =~ "group show" ]]; then
+    if [[ "$cmd" =~ "-o none" ]]; then exit 0; fi
     cat <<EOF
 {
   "id": "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg",
@@ -65,6 +66,7 @@ EOF
 fi
 
 if [[ "$cmd" =~ "identity show" ]]; then
+    if [[ "$cmd" =~ "-o none" ]]; then exit 0; fi
     cat <<EOF
 {
   "id": "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/cloudpulse-identity",
@@ -186,6 +188,77 @@ EOF
     exit 0
 fi
 
+if [[ "$cmd" =~ "cognitiveservices account show" ]]; then
+    oai_state=$(get_state "openai_account_state")
+    if [[ -z "$oai_state" ]]; then oai_state="Succeeded"; fi
+    cat <<EOF
+{
+  "name": "cloudpulse-openai01",
+  "provisioningState": "$oai_state",
+  "endpoint": "https://cloudpulse-openai01.openai.azure.com/",
+  "location": "southeastasia",
+  "kind": "OpenAI",
+  "sku": "S0"
+}
+EOF
+    exit 0
+fi
+
+if [[ "$cmd" =~ "cognitiveservices account deployment show" ]]; then
+    dep_state=$(get_state "openai_deployment_state")
+    if [[ -z "$dep_state" ]]; then dep_state="Succeeded"; fi
+    if [[ "$dep_state" == "NOT_DEPLOYED" ]]; then
+        echo "(NotFound) Specified resource cannot be found." >&2
+        exit 3
+    fi
+    cat <<EOF
+{
+  "name": "cloudpulse-triage",
+  "provisioningState": "$dep_state",
+  "model": "gpt-4.1-mini",
+  "version": "2025-04-14",
+  "sku": "GlobalStandard"
+}
+EOF
+    exit 0
+fi
+
+if [[ "$cmd" =~ "cognitiveservices account deployment list" ]]; then
+    dep_state=$(get_state "openai_deployment_state")
+    if [[ "$dep_state" == "NOT_DEPLOYED" ]]; then
+        echo "[]"
+    else
+        cat <<EOF
+[
+  {
+    "name": "cloudpulse-triage",
+    "provisioningState": "Succeeded",
+    "model": "gpt-4.1-mini",
+    "version": "2025-04-14"
+  }
+]
+EOF
+    fi
+    exit 0
+fi
+
+if [[ "$cmd" =~ "role assignment list" ]]; then
+    role_assigned=$(get_state "openai_role_assigned")
+    if [[ "$role_assigned" == "false" ]]; then
+        echo "[]"
+    else
+        cat <<EOF
+[
+  {
+    "roleDefinitionName": "Cognitive Services OpenAI User",
+    "scope": "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.CognitiveServices/accounts/cloudpulse-openai01"
+  }
+]
+EOF
+    fi
+    exit 0
+fi
+
 exit 0
 """
 
@@ -206,18 +279,31 @@ if [[ "$cmd" =~ "/health" ]]; then
         storage="in_memory"
     fi
 
+    ai_mode=$(python3 -c "import json, sys; d=json.load(open('$STATE_FILE')); val=d.get('ai_mode', 'LIVE'); print(val)")
+    ai_model=$(python3 -c "import json, sys; d=json.load(open('$STATE_FILE')); val=d.get('ai_model', 'gpt-4.1-mini'); print(val)")
+
     payload=$(cat <<EOF
 {
   "service": "cloudpulse-detection-worker",
   "status": "healthy",
   "environment": "production",
   "storage": "$storage",
+  "database": {
+    "degraded": false,
+    "degraded_reason": ""
+  },
   "detectors": [
     "RESOURCE_CREATION",
     "UNEXPECTED_PUBLIC_EXPOSURE",
     "SUSPICIOUS_OUTBOUND_ACTIVITY",
     "COST_ANOMALY"
-  ]
+  ],
+  "ai_provider": {
+    "status": "operational",
+    "execution_mode": "$ai_mode",
+    "model_identifier": "$ai_model",
+    "deployment": "cloudpulse-triage"
+  }
 }
 EOF
 )
@@ -258,6 +344,11 @@ def mock_env(tmp_path):
         "pg_timeout": False,
         "fail_command": "",
         "mutations": [],
+        "openai_account_state": "Succeeded",
+        "openai_deployment_state": "Succeeded",
+        "openai_role_assigned": True,
+        "ai_mode": "LIVE",
+        "ai_model": "gpt-4.1-mini",
     }
     state_file.write_text(json.dumps(initial_state))
 
@@ -567,3 +658,199 @@ def test_absence_of_secrets_in_logs(mock_env):
         for pat in sensitive_patterns:
             matches = re.findall(pat, combined_logs, flags=re.IGNORECASE)
             assert not matches, f"Found sensitive leak matching '{pat}' in {script} output: {matches}"
+
+
+# ------------------------------------------------------------------------------
+# Test 15: ON with deployed and reachable Azure OpenAI model
+# ------------------------------------------------------------------------------
+def test_on_with_deployed_and_reachable_model(mock_env):
+    env, update_state, get_state = mock_env
+    update_state(
+        pg_state="Stopped",
+        openai_account_state="Succeeded",
+        openai_deployment_state="Succeeded",
+        openai_role_assigned=True,
+        ai_mode="LIVE",
+        ai_model="cloudpulse-triage",
+    )
+
+    res = run_cmd(ON_SCRIPT, env=env)
+    assert res.returncode == 0
+    assert "Step 10: Azure OpenAI & Model Ready   : SUCCESS (Live gpt-4.1-mini operational)" in res.stdout
+    assert "CloudPulse is fully ACTIVE and operational!" in res.stdout
+    # Zero OpenAI mutation commands executed
+    state = get_state()
+    assert not any("cognitiveservices" in m for m in state.get("mutations", []))
+
+
+# ------------------------------------------------------------------------------
+# Test 16: ON when Azure OpenAI model deployment is missing
+# ------------------------------------------------------------------------------
+def test_on_when_model_deployment_missing(mock_env):
+    env, update_state, get_state = mock_env
+    update_state(
+        pg_state="Stopped",
+        openai_account_state="Succeeded",
+        openai_deployment_state="NOT_DEPLOYED",
+        openai_role_assigned=True,
+        ai_mode="FALLBACK",
+        ai_model="cloudpulse-deterministic-synthesizer/v1",
+    )
+
+    res = run_cmd(ON_SCRIPT, env=env)
+    # Core app must remain operational (returncode 0)
+    assert res.returncode == 0
+    assert "DEGRADED (Model deployment missing; fallback synthesis active)" in res.stdout
+    assert "CloudPulse is OPERATIONAL (DEGRADED: AI running in deterministic fallback mode)" in res.stdout or "DEGRADED" in res.stderr
+    # Must print actionable deployment command
+    assert "az cognitiveservices account deployment create" in res.stderr or "az cognitiveservices account deployment create" in res.stdout
+    # Must NOT automatically create the model
+    state = get_state()
+    assert not any("deployment create" in m for m in state.get("mutations", []))
+
+
+# ------------------------------------------------------------------------------
+# Test 17: ON when Azure OpenAI account is unreachable or failed
+# ------------------------------------------------------------------------------
+def test_on_when_azure_openai_unreachable(mock_env):
+    env, update_state, get_state = mock_env
+    update_state(
+        pg_state="Stopped",
+        fail_command="cognitiveservices account show",
+        ai_mode="FALLBACK",
+    )
+
+    res = run_cmd(ON_SCRIPT, env=env)
+    # Core app remains operational in degraded mode
+    assert res.returncode == 0
+    assert "DEGRADED" in res.stdout
+    assert "CloudPulse is OPERATIONAL (DEGRADED" in res.stderr or "DEGRADED" in res.stdout
+
+
+# ------------------------------------------------------------------------------
+# Test 18: OFF preserves Azure OpenAI account and deployments
+# ------------------------------------------------------------------------------
+def test_off_preserves_azure_openai_account_and_deployment(mock_env):
+    env, update_state, get_state = mock_env
+    update_state(
+        pg_state="Ready",
+        ca_min=1,
+        ca_max=1,
+        replicas=[],
+        openai_account_state="Succeeded",
+        openai_deployment_state="Succeeded",
+    )
+
+    res = run_cmd(OFF_SCRIPT, env=env)
+    assert res.returncode == 0
+    assert "Azure OpenAI Account          : cloudpulse-openai01 (Provisioned PaaS; 0 inference token charges while dormant)" in res.stdout
+    assert "Model Deployments             : cloudpulse-triage (Retained intact; never deleted during OFF)" in res.stdout
+    state = get_state()
+    # No Azure OpenAI delete or modification commands issued
+    assert not any("cognitiveservices" in m for m in state.get("mutations", []))
+    assert not any("delete" in m for m in state.get("mutations", []))
+    assert not any("destroy" in m for m in state.get("mutations", []))
+
+
+# ------------------------------------------------------------------------------
+# Test 19: Missing managed-identity OpenAI permissions handled truthfully
+# ------------------------------------------------------------------------------
+def test_missing_managed_identity_openai_permissions(mock_env):
+    env, update_state, get_state = mock_env
+    update_state(
+        pg_state="Stopped",
+        openai_account_state="Succeeded",
+        openai_deployment_state="Succeeded",
+        openai_role_assigned=False,
+        ai_mode="FALLBACK",
+    )
+
+    res = run_cmd(ON_SCRIPT, env=env)
+    assert res.returncode == 0
+    assert "DEGRADED (Role missing; fallback synthesis active)" in res.stdout
+    # Must print actionable RBAC assignment command
+    combined = res.stdout + "\n" + res.stderr
+    assert "Cognitive Services OpenAI User" in combined
+    assert "az role assignment create" in combined
+    # Must NOT automatically grant role assignments
+    state = get_state()
+    assert not any("role assignment create" in m for m in state.get("mutations", []))
+
+
+# ------------------------------------------------------------------------------
+# Test 20: Status command reports truthful AI execution mode & storage warnings
+# ------------------------------------------------------------------------------
+def test_status_command_truthful_openai_and_storage_attribution(mock_env):
+    env, update_state, _ = mock_env
+
+    # Case A: LIVE AI execution mode with persistent PostgreSQL
+    update_state(
+        pg_state="Ready",
+        ca_min=0,
+        ca_max=1,
+        replicas=[{"name": "rep1", "properties": {"runningState": "Running"}}],
+        rev_running_state="Running",
+        openai_account_state="Succeeded",
+        openai_deployment_state="Succeeded",
+        openai_role_assigned=True,
+        ai_mode="LIVE",
+        ai_model="cloudpulse-triage",
+        db_fallback=False,
+    )
+
+    res_live_json = run_cmd(STATUS_SCRIPT, ["--json"], env=env)
+    assert res_live_json.returncode == 0
+    data_live = json.loads(res_live_json.stdout)
+    assert data_live["overall_status"] == "ACTIVE"
+    assert data_live["azure_openai"]["runtime_execution_mode"] == "LIVE"
+    assert data_live["azure_openai"]["rbac_status"] == "ASSIGNED"
+    assert data_live["database"]["storage"] == "postgres"
+
+    # Case B: Ephemeral in-memory fallback warning
+    update_state(
+        pg_state="Ready",
+        ca_min=0,
+        ca_max=1,
+        replicas=[{"name": "rep1", "properties": {"runningState": "Running"}}],
+        rev_running_state="Running",
+        db_fallback=True,
+        ai_mode="FALLBACK",
+        openai_deployment_state="NOT_DEPLOYED",
+    )
+
+    res_warn = run_cmd(STATUS_SCRIPT, env=env)
+    assert res_warn.returncode == 0
+    assert "STORAGE WARNING: Database is operating in ephemeral in-memory fallback" in res_warn.stdout
+    assert "Deployment     : cloudpulse-triage (NOT_DEPLOYED - Model not deployed)" in res_warn.stdout
+
+    res_warn_json = run_cmd(STATUS_SCRIPT, ["--json"], env=env)
+    assert res_warn_json.returncode == 0
+    data_warn = json.loads(res_warn_json.stdout)
+    assert data_warn["overall_status"] == "ACTIVE_DEGRADED"
+    assert data_warn["azure_openai"]["deployment_state"] == "NOT_DEPLOYED"
+    assert data_warn["azure_openai"]["runtime_execution_mode"] == "FALLBACK"
+    assert data_warn["database"]["storage"] == "in_memory"
+
+
+# ------------------------------------------------------------------------------
+# Test 21: Repeated ON/OFF executions are safe, idempotent, and preserve OpenAI
+# ------------------------------------------------------------------------------
+def test_repeated_on_off_preserves_openai_and_is_idempotent(mock_env):
+    env, update_state, get_state = mock_env
+    update_state(pg_state="Stopped", ca_min=0, ca_max=1, replicas=[])
+
+    # Run OFF repeatedly
+    res_off1 = run_cmd(OFF_SCRIPT, env=env)
+    assert res_off1.returncode == 0
+    res_off2 = run_cmd(OFF_SCRIPT, env=env)
+    assert res_off2.returncode == 0
+
+    # Run ON repeatedly
+    res_on1 = run_cmd(ON_SCRIPT, env=env)
+    assert res_on1.returncode == 0
+    res_on2 = run_cmd(ON_SCRIPT, env=env)
+    assert res_on2.returncode == 0
+
+    # Ensure zero mutation calls touched cognitiveservices
+    state = get_state()
+    assert not any("cognitiveservices" in m for m in state.get("mutations", []))
