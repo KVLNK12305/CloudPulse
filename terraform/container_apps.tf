@@ -98,6 +98,36 @@ resource "azurerm_container_app" "detection_worker" {
         name  = "LOOKBACK_MINUTES"
         value = "60"
       }
+
+      env {
+        name  = "AZURE_SUBSCRIPTION_ID"
+        value = data.azurerm_client_config.current.subscription_id
+      }
+
+      env {
+        name  = "AZURE_OPENAI_ENDPOINT"
+        value = "https://cloudpulse-openai01.openai.azure.com/"
+      }
+
+      env {
+        name  = "AZURE_OPENAI_DEPLOYMENT_NAME"
+        value = "cloudpulse-triage"
+      }
+
+      liveness_probe {
+        transport               = "HTTP"
+        path                    = "/health"
+        port                    = 8080
+        interval_seconds        = 30
+        failure_count_threshold = 3
+      }
+
+      startup_probe {
+        transport               = "HTTP"
+        path                    = "/health"
+        port                    = 8080
+        failure_count_threshold = 10
+      }
     }
 
     min_replicas = 1
