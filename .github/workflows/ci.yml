@@ -36,10 +36,12 @@ jobs:
       - uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-      - name: Build and push to ACR
+      - name: Log in to ACR
+        run: az acr login --name cloudpulseacr01
+      - name: Build and push image
         run: |
-          az acr build \
-            --registry cloudpulseacr01 \
-            --image detection-worker:v2 \
+          docker build \
+            --tag cloudpulseacr01.azurecr.io/detection-worker:v2 \
             --file services/detection-worker/Dockerfile \
             services/detection-worker/
+          docker push cloudpulseacr01.azurecr.io/detection-worker:v2
