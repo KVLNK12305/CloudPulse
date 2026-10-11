@@ -38,7 +38,7 @@ resource "azurerm_role_assignment" "cloudpulse_cost_reader" {
 resource "azurerm_role_definition" "cloudpulse_remediation_operator" {
   name        = "CloudPulse-Remediation-Operator"
   scope       = azurerm_resource_group.cloudpulse.id
-  description = "Restricted NSG rule management for CloudPulse controlled remediation"
+  description = "Least-privilege role for CloudPulse controlled remediation on NSG rules."
 
   permissions {
     actions = [
