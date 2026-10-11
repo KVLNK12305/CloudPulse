@@ -4,7 +4,7 @@ resource "azurerm_container_registry" "cloudpulse" {
   location            = "Central India"
 
   sku           = "Basic"
-  admin_enabled = false
+  admin_enabled = true
 
   tags = {
     Project = "cloudpulse"
