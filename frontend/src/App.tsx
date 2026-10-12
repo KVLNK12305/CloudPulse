@@ -1,0 +1,394 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Compass,
+  ExternalLink,
+  Info,
+  Shield,
+  Sparkles,
+  Users,
+  X,
+  Zap,
+} from 'lucide-react';
+import { ActionModal } from './components/ActionModal';
+import { AlertsBanner } from './components/AlertsBanner';
+import { ConnectTenantModal } from './components/ConnectTenantModal';
+import { FinopsTab } from './components/FinopsTab';
+import { IncidentsTab } from './components/IncidentsTab';
+import { Navbar } from './components/Navbar';
+import { OverviewTab } from './components/OverviewTab';
+import { ResourceDrawer } from './components/ResourceDrawer';
+import { ResourcesTab } from './components/ResourcesTab';
+import { ToastContainer } from './components/ToastContainer';
+import { api } from './services/api';
+import {
+  CostSummary,
+  EstateOverview,
+  HealthStatus,
+  Incident,
+  OperatorProfile,
+  Persona,
+  ResourceItem,
+  TabType,
+  TenantScope,
+  ToastMessage,
+} from './types';
+
+const defaultTenants: TenantScope[] = [
+  {
+    id: 'tenant-demo',
+    name: 'CloudPulse Demo Sandbox',
+    subscriptionId: 'sub-6fa109-sandbox',
+    environment: 'sandbox',
+    region: 'eastus',
+    isDemo: true,
+  },
+  {
+    id: 'tenant-prod',
+    name: 'Acme Corp Production',
+    subscriptionId: 'c9b3e102-45a8-4b71-923f-110022334455',
+    environment: 'production',
+    region: 'eastus',
+  },
+  {
+    id: 'tenant-staging',
+    name: 'Global QA & Staging',
+    subscriptionId: '8fa32100-3321-410a-8abc-ff0011223344',
+    environment: 'staging',
+    region: 'westeurope',
+  },
+];
+
+export const App: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [resources, setResources] = useState<ResourceItem[]>([]);
+  const [estateOverview, setEstateOverview] = useState<EstateOverview | null>(null);
+  const [costSummary, setCostSummary] = useState<CostSummary | null>(null);
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [inspectedResourceId, setInspectedResourceId] = useState<string | null>(null);
+
+  const [apiErrors, setApiErrors] = useState<string[]>([]);
+  const [dbDegradedWarning, setDbDegradedWarning] = useState<string | null>(null);
+
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [isSeeding, setIsSeeding] = useState<boolean>(false);
+  const [autoRefresh, setAutoRefresh] = useState<boolean>(true);
+
+  // Multi-user & Enterprise scope state
+  const [activePersona, setActivePersona] = useState<Persona>('secops');
+  const [availableTenants, setAvailableTenants] = useState<TenantScope[]>(defaultTenants);
+  const [activeTenant, setActiveTenant] = useState<TenantScope>(defaultTenants[0]);
+  const [connectTenantModalOpen, setConnectTenantModalOpen] = useState<boolean>(false);
+  const [showEvaluatorBanner, setShowEvaluatorBanner] = useState<boolean>(true);
+
+  const [activeOperator, setActiveOperator] = useState<OperatorProfile>({
+    id: 'op-1',
+    name: 'Alex Morgan',
+    role: 'Lead SecOps Engineer',
+    email: 'alex.morgan@cloudpulse.io',
+    organization: 'Acme Cloud Security',
+  });
+
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const showToast = useCallback(
+    (type: 'info' | 'success' | 'warning' | 'error', title: string, message?: string) => {
+      const id = Date.now().toString() + Math.random().toString(36).substring(2, 6);
+      setToasts(prev => [...prev, { id, type, title, message }]);
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, 5000);
+    },
+    []
+  );
+
+  const dismissToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  // Main Data Loader
+  const loadData = useCallback(async () => {
+    setIsRefreshing(true);
+    const errors: string[] = [];
+
+    const [healthRes, incRes, ovRes, resRes, costRes] = await Promise.allSettled([
+      api.fetchHealth(),
+      api.fetchIncidents(),
+      api.fetchEstateOverview(),
+      api.fetchResources(),
+      api.fetchCostSummary(),
+    ]);
+
+    // Health
+    if (healthRes.status === 'fulfilled') {
+      setHealth(healthRes.value);
+      if (healthRes.value.database?.degraded) {
+        setDbDegradedWarning(
+          healthRes.value.database.degradation_reason ||
+            'PostgreSQL connection failed; running in volatile in-memory fallback.'
+        );
+      } else {
+        setDbDegradedWarning(null);
+      }
+    } else {
+      errors.push('Backend health probe unavailable');
+    }
+
+    // Incidents
+    if (incRes.status === 'fulfilled') {
+      setIncidents(incRes.value);
+      if (!selectedIncidentId && incRes.value.length > 0) {
+        setSelectedIncidentId(incRes.value[0].incident_id);
+      }
+    } else {
+      errors.push(incRes.reason?.message || 'Incidents API unreachable');
+    }
+
+    // Estate Overview
+    if (ovRes.status === 'fulfilled') {
+      setEstateOverview(ovRes.value);
+    } else {
+      errors.push(ovRes.reason?.message || 'Estate Overview API unreachable');
+    }
+
+    // Resources
+    if (resRes.status === 'fulfilled') {
+      setResources(resRes.value);
+    } else {
+      errors.push(resRes.reason?.message || 'Resource Graph API unreachable');
+    }
+
+    // Cost
+    if (costRes.status === 'fulfilled') {
+      setCostSummary(costRes.value);
+    } else {
+      errors.push(costRes.reason?.message || 'Azure Cost Management API unreachable');
+    }
+
+    setApiErrors(errors);
+    setIsRefreshing(false);
+  }, [selectedIncidentId]);
+
+  // Initial load
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Polling loop
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(() => {
+      loadData();
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, loadData]);
+
+  // Seed Demo Handler
+  const handleSeedDemo = async () => {
+    setIsSeeding(true);
+    showToast('info', 'Ingesting Demo Scenario', 'Simulating multi-vector breach telemetry...');
+    try {
+      await api.seedDemoScenario();
+      await loadData();
+      setActiveTab('incidents');
+      showToast(
+        'success',
+        'Demo Scenario Ingested',
+        'Multi-vector breach and cost anomaly correlated and triaged.'
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown seeding error';
+      showToast('error', 'Demo Seeding Failed', msg);
+    } finally {
+      setIsSeeding(false);
+    }
+  };
+
+  const handleIncidentUpdated = (updated: Incident) => {
+    setIncidents(prev =>
+      prev.map(i => (i.incident_id === updated.incident_id ? updated : i))
+    );
+  };
+
+  const handleTenantConnected = (newTenant: TenantScope) => {
+    setAvailableTenants(prev => [newTenant, ...prev]);
+    setActiveTenant(newTenant);
+    showToast(
+      'success',
+      'Tenant Connected',
+      `Connected ${newTenant.name} (${newTenant.subscriptionId}). Initializing discovery.`
+    );
+  };
+
+  const openIncidentCount = incidents.filter(i => i.status === 'OPEN').length;
+
+  return (
+    <>
+      <Navbar
+        activeTab={activeTab}
+        onTabChange={tab => {
+          setActiveTab(tab);
+          if (tab === 'incidents' && !selectedIncidentId && incidents.length > 0) {
+            setSelectedIncidentId(incidents[0].incident_id);
+          }
+        }}
+        resourceCount={resources.length}
+        openIncidentCount={openIncidentCount}
+        health={health}
+        subscriptionId={estateOverview?.subscription_id}
+        isSeeding={isSeeding}
+        onSeedDemo={handleSeedDemo}
+        isRefreshing={isRefreshing}
+        onRefresh={loadData}
+        autoRefresh={autoRefresh}
+        onToggleAutoRefresh={() => setAutoRefresh(prev => !prev)}
+        activePersona={activePersona}
+        onPersonaChange={p => {
+          setActivePersona(p);
+          showToast('info', 'Operational Perspective Updated', `Switched view focus to ${p.toUpperCase()}.`);
+        }}
+        activeTenant={activeTenant}
+        availableTenants={availableTenants}
+        onTenantChange={t => {
+          setActiveTenant(t);
+          showToast('info', 'Tenant Scope Switched', `Active scope: ${t.name}`);
+        }}
+        onOpenConnectTenant={() => setConnectTenantModalOpen(true)}
+        activeOperator={activeOperator}
+      />
+
+      <main className="app-container">
+        {/* Pitch-Ready Evaluator & Multi-User Welcome Banner */}
+        {showEvaluatorBanner && (
+          <div
+            className="evaluator-banner"
+            style={{
+              background: 'linear-gradient(90deg, rgba(99, 179, 237, 0.08), rgba(159, 122, 234, 0.08))',
+              border: '1px solid rgba(99, 179, 237, 0.25)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '12px 18px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <Sparkles size={18} color="var(--accent-sky)" style={{ flexShrink: 0 }} />
+              <div style={{ fontSize: '0.80rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
+                <strong>CloudPulse Autonomous SecOps & FinOps Platform:</strong> Built for security commanders,
+                cloud economists, and platform teams. Currently inspecting{' '}
+                <strong style={{ color: 'var(--accent-sky)' }}>{activeTenant.name}</strong>. Switch perspective
+                using the role selector in the top bar, or click <strong>Connect Cloud</strong> to onboard your own Azure tenant.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                onClick={() => setConnectTenantModalOpen(true)}
+              >
+                + Connect Your Azure Tenant
+              </button>
+              <button
+                onClick={() => setShowEvaluatorBanner(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-tertiary)',
+                  cursor: 'pointer',
+                  padding: '4px',
+                }}
+                title="Dismiss banner"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Dynamic Alerts Banner */}
+        <AlertsBanner
+          dbDegradedWarning={dbDegradedWarning}
+          apiErrors={apiErrors}
+          onRetry={loadData}
+        />
+
+        {/* Tab 1: Overview */}
+        {activeTab === 'overview' && (
+          <OverviewTab
+            estateOverview={estateOverview}
+            incidents={incidents}
+            resourceCount={resources.length}
+            onNavigateTab={tab => setActiveTab(tab)}
+            onSelectIncident={id => {
+              setSelectedIncidentId(id);
+              setActiveTab('incidents');
+            }}
+          />
+        )}
+
+        {/* Tab 2: Resources */}
+        {activeTab === 'resources' && (
+          <ResourcesTab
+            resources={resources}
+            onInspectResource={id => setInspectedResourceId(id)}
+          />
+        )}
+
+        {/* Tab 3: Cost & FinOps */}
+        {activeTab === 'finops' && (
+          <FinopsTab
+            costSummary={costSummary}
+            incidents={incidents}
+            onNavigateTab={tab => setActiveTab(tab)}
+            onSelectIncident={id => {
+              setSelectedIncidentId(id);
+              setActiveTab('incidents');
+            }}
+          />
+        )}
+
+        {/* Tab 4: Incidents */}
+        {activeTab === 'incidents' && (
+          <IncidentsTab
+            incidents={incidents}
+            selectedIncidentId={selectedIncidentId}
+            onSelectIncident={id => setSelectedIncidentId(id)}
+            onIncidentUpdated={handleIncidentUpdated}
+            onShowToast={showToast}
+            activeOperator={activeOperator}
+          />
+        )}
+      </main>
+
+      {/* Slide-over Deep Resource Drawer */}
+      <ResourceDrawer
+        isOpen={!!inspectedResourceId}
+        resourceId={inspectedResourceId}
+        onClose={() => setInspectedResourceId(null)}
+        onSelectIncident={id => {
+          setSelectedIncidentId(id);
+          setActiveTab('incidents');
+        }}
+      />
+
+      {/* Onboard / Connect Tenant Wizard Modal */}
+      <ConnectTenantModal
+        isOpen={connectTenantModalOpen}
+        onClose={() => setConnectTenantModalOpen(false)}
+        onTenantConnected={handleTenantConnected}
+      />
+
+      {/* Toast Notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+    </>
+  );
+};
+
+export default App;
