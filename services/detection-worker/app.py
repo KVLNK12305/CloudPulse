@@ -1288,8 +1288,11 @@ def create_app(
         }), 200
 
     # --- Dashboard UI Serving ---
+    # --- Dashboard UI Serving ---
     @app.route("/dashboard", methods=["GET"])
-    def serve_dashboard():
+    @app.route("/dashboard/", methods=["GET"])
+    @app.route("/dashboard/<path:subpath>", methods=["GET"])
+    def serve_dashboard(subpath=None):
         static_dir = os.path.join(os.path.dirname(__file__), "static")
         return send_from_directory(static_dir, "index.html")
 
@@ -1297,6 +1300,11 @@ def create_app(
     def serve_static(filename):
         static_dir = os.path.join(os.path.dirname(__file__), "static")
         return send_from_directory(static_dir, filename)
+
+    @app.route("/assets/<path:filename>", methods=["GET"])
+    def serve_assets(filename):
+        assets_dir = os.path.join(os.path.dirname(__file__), "static", "assets")
+        return send_from_directory(assets_dir, filename)
 
     # --- Incident APIs ---
     @app.route("/incidents", methods=["GET"])

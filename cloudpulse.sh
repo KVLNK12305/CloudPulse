@@ -101,6 +101,7 @@ start() {
     cd "$BASE_DIR"
     nohup env PYTHONPATH="services/detection-worker" "$VENV_PYTHON" "$APP_SCRIPT" > "$LOG_FILE" 2>&1 &
     local new_pid=$!
+    disown "$new_pid" 2>/dev/null || true
     echo "$new_pid" > "$PID_FILE"
 
     echo -e "   Spawned CloudPulse process (PID: $new_pid). Waiting for health check..."
@@ -176,6 +177,20 @@ test() {
 }
 
 # ------------------------------------------------------------------------------
+# FRONTEND UI (REACT + PNPM)
+# ------------------------------------------------------------------------------
+build_ui() {
+    echo -e "${BOLD}${CYAN}📦 Building React Operator Console with pnpm...${NC}"
+    (cd "$BASE_DIR/frontend" && pnpm build)
+    echo -e "   ${GREEN}✔ React dashboard bundle compiled to services/detection-worker/static${NC}"
+}
+
+dev_ui() {
+    echo -e "${BOLD}${CYAN}⚡ Starting Vite Dev Server (pnpm) with proxy to http://127.0.0.1:$PORT...${NC}"
+    (cd "$BASE_DIR/frontend" && pnpm dev)
+}
+
+# ------------------------------------------------------------------------------
 # MAIN DISPATCH
 # ------------------------------------------------------------------------------
 case "${1:-}" in
@@ -203,18 +218,26 @@ case "${1:-}" in
     test)
         test
         ;;
+    build-ui)
+        build_ui
+        ;;
+    dev-ui)
+        dev_ui
+        ;;
     *)
         echo -e "${BOLD}CloudPulse Service Controller${NC}"
         echo -e "Usage: ${BOLD}./cloudpulse.sh [command]${NC}\n"
         echo -e "Commands:"
-        echo -e "  ${GREEN}start${NC}    - Start CloudPulse daemon on port $PORT"
-        echo -e "  ${YELLOW}stop${NC}     - Stop running CloudPulse process on port $PORT"
-        echo -e "  ${CYAN}restart${NC}  - Stop and start fresh backend on port $PORT"
-        echo -e "  ${GREEN}reset${NC}    - Restart backend and re-seed clean real-life demo data"
-        echo -e "  ${CYAN}seed${NC}     - Ingest real-life breach & FinOps demo telemetry"
-        echo -e "  ${BOLD}status${NC}   - Check process and HTTP health status"
-        echo -e "  ${BOLD}logs${NC}     - Tail application log output ($LOG_FILE)"
-        echo -e "  ${BOLD}test${NC}     - Run pytest suite (250/250 tests)"
+        echo -e "  ${GREEN}start${NC}     - Start CloudPulse daemon on port $PORT"
+        echo -e "  ${YELLOW}stop${NC}      - Stop running CloudPulse process on port $PORT"
+        echo -e "  ${CYAN}restart${NC}   - Stop and start fresh backend on port $PORT"
+        echo -e "  ${GREEN}reset${NC}     - Restart backend and re-seed clean real-life demo data"
+        echo -e "  ${CYAN}seed${NC}      - Ingest real-life breach & FinOps demo telemetry"
+        echo -e "  ${BOLD}build-ui${NC}  - Compile React operator dashboard via pnpm"
+        echo -e "  ${BOLD}dev-ui${NC}    - Run Vite live dev server (HMR) on port 5173"
+        echo -e "  ${BOLD}status${NC}    - Check process and HTTP health status"
+        echo -e "  ${BOLD}logs${NC}      - Tail application log output ($LOG_FILE)"
+        echo -e "  ${BOLD}test${NC}      - Run pytest suite (299/299 tests)"
         exit 1
         ;;
 esac
