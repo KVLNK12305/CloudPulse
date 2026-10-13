@@ -272,7 +272,11 @@ export interface TenantScope {
 export interface OperatorProfile {
   id: string;
   name: string;
+  initials: string;
   role: string;
   email: string;
   organization: string;
+  primaryPersona: Persona;
+  allowedPersonas: Persona[];
+  isSuperAdmin?: boolean;
 }

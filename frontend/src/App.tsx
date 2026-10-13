@@ -21,7 +21,7 @@ import { PersonaFocusBar } from './components/PersonaFocusBar';
 import { ResourceDrawer } from './components/ResourceDrawer';
 import { ResourcesTab } from './components/ResourcesTab';
 import { ToastContainer } from './components/ToastContainer';
-import { PERSONA_CONFIGS } from './services/personaConfig';
+import { OPERATOR_TEAM, PERSONA_CONFIGS } from './services/personaConfig';
 import { api } from './services/api';
 import {
   CostSummary,
@@ -86,9 +86,8 @@ export const App: React.FC = () => {
   const [connectTenantModalOpen, setConnectTenantModalOpen] = useState<boolean>(false);
   const [showEvaluatorBanner, setShowEvaluatorBanner] = useState<boolean>(true);
 
-  const [activeOperator, setActiveOperator] = useState<OperatorProfile>(
-    PERSONA_CONFIGS.secops.operator
-  );
+  const [availableOperators] = useState<OperatorProfile[]>(OPERATOR_TEAM);
+  const [activeOperator, setActiveOperator] = useState<OperatorProfile>(OPERATOR_TEAM[0]);
   const [cisoExportBriefOpen, setCisoExportBriefOpen] = useState<boolean>(false);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -104,14 +103,52 @@ export const App: React.FC = () => {
     []
   );
 
-  const handlePersonaChange = useCallback(
-    (newPersona: Persona) => {
-      setActivePersona(newPersona);
-      const cfg = PERSONA_CONFIGS[newPersona];
-      setActiveOperator(cfg.operator);
-      showToast('info', `${cfg.label} Perspective Active`, cfg.directive);
+  const handleOperatorChange = useCallback(
+    (newOp: OperatorProfile) => {
+      setActiveOperator(newOp);
+      if (newOp.isSuperAdmin) {
+        showToast(
+          'success',
+          `${newOp.name} Active (Full Access)`,
+          'SecOps super-admin elevation granted: Unrestricted permissions to audit and assume any role across the estate.'
+        );
+      } else {
+        setActivePersona(newOp.primaryPersona);
+        const cfg = PERSONA_CONFIGS[newOp.primaryPersona];
+        showToast(
+          'info',
+          `${newOp.name} Active`,
+          `Assigned domain: ${newOp.role}. Switched to ${cfg.label} perspective.`
+        );
+      }
     },
     [showToast]
+  );
+
+  const handlePersonaChange = useCallback(
+    (newPersona: Persona) => {
+      if (activeOperator.isSuperAdmin || activeOperator.allowedPersonas.includes(newPersona)) {
+        setActivePersona(newPersona);
+        const cfg = PERSONA_CONFIGS[newPersona];
+        if (!activeOperator.isSuperAdmin) {
+          setActiveOperator(cfg.operator);
+        }
+        showToast(
+          'info',
+          activeOperator.isSuperAdmin
+            ? `${activeOperator.name} (Full Access) assumed ${cfg.label} POV`
+            : `${cfg.label} Perspective Active`,
+          cfg.directive
+        );
+      } else {
+        showToast(
+          'warning',
+          'Role Restricted',
+          `Only SecOps Commander (K V L N Kushal) has full-access elevation to switch into all roles. Operating as ${activeOperator.name} (${activeOperator.role}).`
+        );
+      }
+    },
+    [activeOperator, showToast]
   );
 
   const dismissToast = (id: string) => {
@@ -264,12 +301,15 @@ export const App: React.FC = () => {
         }}
         onOpenConnectTenant={() => setConnectTenantModalOpen(true)}
         activeOperator={activeOperator}
+        availableOperators={availableOperators}
+        onOperatorChange={handleOperatorChange}
       />
 
       <main className="app-container">
         {/* Role-Based Point-of-View (POV) Focus Directive Bar */}
         <PersonaFocusBar
           activePersona={activePersona}
+          activeOperator={activeOperator}
           onPersonaChange={handlePersonaChange}
           onNavigateTab={tab => setActiveTab(tab)}
           onOpenExportBrief={() => setCisoExportBriefOpen(true)}

@@ -7,9 +7,11 @@ import {
   Cloud,
   Database,
   DollarSign,
+  Lock,
   Plus,
   RefreshCw,
   Shield,
+  Sparkles,
   Zap,
 } from 'lucide-react';
 import {
@@ -19,6 +21,7 @@ import {
   TabType,
   TenantScope,
 } from '../types';
+import { OPERATOR_TEAM, PERSONA_CONFIGS } from '../services/personaConfig';
 
 interface NavbarProps {
   activeTab: TabType;
@@ -41,23 +44,25 @@ interface NavbarProps {
   onTenantChange: (t: TenantScope) => void;
   onOpenConnectTenant: () => void;
   activeOperator: OperatorProfile;
+  availableOperators?: OperatorProfile[];
+  onOperatorChange?: (op: OperatorProfile) => void;
   onUpdateOperatorName?: (name: string) => void;
 }
 
-const PERSONA_CONFIGS: Record<
+const PERSONA_LABELS: Record<
   Persona,
   { label: string; short: string; color: string; desc: string; roleTag: string }
 > = {
   secops: {
     label: 'SecOps Commander',
-    short: 'SecOps',
+    short: 'SECOPS',
     color: '#fc8181',
     desc: 'Threat surface, containment gate',
     roleTag: 'SECOPS',
   },
   finops: {
     label: 'FinOps Economist',
-    short: 'FinOps',
+    short: 'FINOPS',
     color: '#38d9a9',
     desc: 'Unit economics, baseline variance',
     roleTag: 'FINOPS',
@@ -97,6 +102,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onTenantChange,
   onOpenConnectTenant,
   activeOperator,
+  availableOperators = OPERATOR_TEAM,
+  onOperatorChange,
 }) => {
   const [clock, setClock] = useState<string>('--:--:-- UTC');
   const [tenantDropdownOpen, setTenantDropdownOpen] = useState<boolean>(false);
@@ -139,7 +146,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     ? 'PostgreSQL'
     : 'In-Memory Cache';
 
-  const currentPersona = PERSONA_CONFIGS[activePersona] || PERSONA_CONFIGS.secops;
+  const currentPersona = PERSONA_LABELS[activePersona] || PERSONA_LABELS.secops;
 
   return (
     <header className="topbar">
@@ -329,11 +336,19 @@ export const Navbar: React.FC<NavbarProps> = ({
           <button
             className="operator-pill"
             onClick={() => setUserMenuOpen(prev => !prev)}
-            title={`Operator: ${activeOperator.name} (${activeOperator.role}) — Click to switch perspective`}
+            title={`Active Operator: ${activeOperator.name} (${activeOperator.role}) ${activeOperator.isSuperAdmin ? '— Full Access Unlocked' : ''}`}
             aria-expanded={userMenuOpen}
           >
-            <div className="operator-avatar">
-              {activeOperator.name.substring(0, 2).toUpperCase()}
+            <div
+              className="operator-avatar"
+              style={{
+                background: activeOperator.isSuperAdmin
+                  ? 'linear-gradient(135deg, #f6ad55, #fc8181)'
+                  : 'linear-gradient(135deg, #63b3ed, #9f7aea)',
+                boxShadow: activeOperator.isSuperAdmin ? '0 0 8px rgba(246, 173, 85, 0.4)' : 'none',
+              }}
+            >
+              {activeOperator.initials}
             </div>
             <div className="operator-pill-meta">
               <span className="operator-name">{activeOperator.name}</span>
@@ -347,20 +362,65 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 {currentPersona.short}
               </span>
+              {activeOperator.isSuperAdmin && (
+                <span
+                  style={{
+                    fontSize: '0.54rem',
+                    fontWeight: 800,
+                    fontFamily: 'var(--font-mono)',
+                    color: '#f6ad55',
+                    background: 'rgba(246, 173, 85, 0.15)',
+                    border: '1px solid rgba(246, 173, 85, 0.35)',
+                    padding: '0 5px',
+                    borderRadius: 'var(--radius-xs)',
+                    letterSpacing: '0.04em',
+                  }}
+                  title="SecOps Super-Admin: Unrestricted access to assume any role"
+                >
+                  FULL ACCESS
+                </span>
+              )}
             </div>
             <ChevronDown size={10} color="var(--text-tertiary)" />
           </button>
 
           {userMenuOpen && (
-            <div className="dropdown-menu operator-dropdown">
+            <div className="dropdown-menu operator-dropdown" style={{ right: 0, left: 'auto', minWidth: '310px' }}>
               {/* Operator Identity Header */}
               <div className="operator-dropdown-header">
-                <div className="operator-avatar" style={{ width: 28, height: 28, fontSize: '0.70rem' }}>
-                  {activeOperator.name.substring(0, 2).toUpperCase()}
+                <div
+                  className="operator-avatar"
+                  style={{
+                    width: 32,
+                    height: 32,
+                    fontSize: '0.74rem',
+                    background: activeOperator.isSuperAdmin
+                      ? 'linear-gradient(135deg, #f6ad55, #fc8181)'
+                      : 'linear-gradient(135deg, #63b3ed, #9f7aea)',
+                    boxShadow: activeOperator.isSuperAdmin ? '0 0 10px rgba(246, 173, 85, 0.35)' : 'none',
+                  }}
+                >
+                  {activeOperator.initials}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 800, fontSize: '0.82rem', color: 'var(--text-primary)' }}>
-                    {activeOperator.name}
+                  <div style={{ fontWeight: 800, fontSize: '0.84rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>{activeOperator.name}</span>
+                    {activeOperator.isSuperAdmin && (
+                      <span
+                        style={{
+                          fontSize: '0.54rem',
+                          fontWeight: 800,
+                          fontFamily: 'var(--font-mono)',
+                          color: '#f6ad55',
+                          background: 'rgba(246, 173, 85, 0.15)',
+                          border: '1px solid rgba(246, 173, 85, 0.35)',
+                          padding: '1px 5px',
+                          borderRadius: 'var(--radius-xs)',
+                        }}
+                      >
+                        FULL ACCESS
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: '0.68rem', color: 'var(--accent-sky)' }}>
                     {activeOperator.role}
@@ -371,19 +431,126 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               </div>
 
+              {/* Privilege Elevation Banner */}
+              <div
+                style={{
+                  margin: '6px 6px 4px',
+                  padding: '5px 8px',
+                  borderRadius: 'var(--radius-xs)',
+                  background: activeOperator.isSuperAdmin ? 'rgba(246, 173, 85, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                  border: `1px solid ${activeOperator.isSuperAdmin ? 'rgba(246, 173, 85, 0.25)' : 'var(--border-subtle)'}`,
+                  fontSize: '0.64rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  color: activeOperator.isSuperAdmin ? '#f6ad55' : 'var(--text-tertiary)',
+                }}
+              >
+                {activeOperator.isSuperAdmin ? (
+                  <>
+                    <Sparkles size={11} color="#f6ad55" />
+                    <span>SecOps Super-Admin: Unrestricted permission to assume any role.</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock size={10} />
+                    <span>Role-restricted operator. Cross-domain elevation requires SecOps.</span>
+                  </>
+                )}
+              </div>
+
+              {/* Team Members Switcher */}
+              <div className="dropdown-section-title">Team Operators (Switch User)</div>
+              {availableOperators.map(op => {
+                const isCurrent = op.id === activeOperator.id;
+                return (
+                  <div
+                    key={op.id}
+                    className={`dropdown-item ${isCurrent ? 'active' : ''}`}
+                    onClick={() => {
+                      onOperatorChange?.(op);
+                    }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div
+                        className="operator-avatar"
+                        style={{
+                          width: 22,
+                          height: 22,
+                          fontSize: '0.60rem',
+                          background: op.isSuperAdmin
+                            ? 'linear-gradient(135deg, #f6ad55, #fc8181)'
+                            : 'linear-gradient(135deg, #63b3ed, #9f7aea)',
+                        }}
+                      >
+                        {op.initials}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '0.74rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>{op.name}</span>
+                          {op.isSuperAdmin && (
+                            <span
+                              style={{
+                                fontSize: '0.52rem',
+                                fontFamily: 'var(--font-mono)',
+                                color: '#f6ad55',
+                                fontWeight: 800,
+                              }}
+                            >
+                              ★ FULL ACCESS
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '0.62rem', color: 'var(--text-tertiary)' }}>
+                          {op.role}
+                        </div>
+                      </div>
+                    </div>
+                    {isCurrent && <Check size={12} color="var(--accent-teal)" />}
+                  </div>
+                );
+              })}
+
+              <div className="dropdown-divider" />
+
               {/* Perspective (POV) Selector */}
-              <div className="dropdown-section-title">Operational Perspective (POV)</div>
-              {(Object.keys(PERSONA_CONFIGS) as Persona[]).map(p => {
-                const conf = PERSONA_CONFIGS[p];
+              <div className="dropdown-section-title">
+                Operational Perspective (POV)
+                {activeOperator.isSuperAdmin ? (
+                  <span style={{ color: '#f6ad55', fontWeight: 700, fontSize: '0.58rem', marginLeft: 6 }}>
+                    (All Roles Unlocked)
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--text-tertiary)', fontWeight: 500, fontSize: '0.58rem', marginLeft: 6 }}>
+                    (SecOps Exclusive)
+                  </span>
+                )}
+              </div>
+              {(Object.keys(PERSONA_LABELS) as Persona[]).map(p => {
+                const conf = PERSONA_LABELS[p];
                 const isSelected = p === activePersona;
+                const isAllowed = activeOperator.isSuperAdmin || activeOperator.allowedPersonas.includes(p);
                 return (
                   <div
                     key={p}
                     className={`dropdown-item ${isSelected ? 'active' : ''}`}
-                    onClick={() => {
-                      onPersonaChange(p);
-                      setUserMenuOpen(false);
+                    style={{
+                      opacity: isAllowed ? 1 : 0.45,
+                      cursor: isAllowed ? 'pointer' : 'not-allowed',
+                      padding: '6px 10px',
                     }}
+                    onClick={() => {
+                      if (isAllowed) {
+                        onPersonaChange(p);
+                        setUserMenuOpen(false);
+                      }
+                    }}
+                    title={
+                      isAllowed
+                        ? `Switch perspective to ${conf.label}`
+                        : `Restricted: Only SecOps Commander (K V L N Kushal) has full-access elevation to switch into all roles.`
+                    }
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span
@@ -397,10 +564,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                         }}
                       />
                       <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.74rem', color: conf.color }}>
-                          {conf.label}
+                        <div style={{ fontWeight: 700, fontSize: '0.74rem', color: conf.color, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>{conf.label}</span>
+                          {!isAllowed && <Lock size={10} color="var(--text-tertiary)" />}
                         </div>
-                        <div style={{ fontSize: '0.64rem', color: 'var(--text-tertiary)' }}>
+                        <div style={{ fontSize: '0.62rem', color: 'var(--text-tertiary)' }}>
                           {conf.desc}
                         </div>
                       </div>

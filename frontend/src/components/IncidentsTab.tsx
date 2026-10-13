@@ -600,7 +600,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                     )}
                     {activePersona === 'executive' && (
                       <>
-                        <strong>Compliance Exposure: </strong> Inbound SSH rule <code>Allow-SSH-Internet</code> violates CIS Azure Benchmark 5.1 and SOC 2 Type II CC6.1. Audit log attributes remediation directly to active operator <code>{activeOperator?.name || 'Alex Morgan'}</code>.
+                        <strong>Compliance Exposure: </strong> Inbound SSH rule <code>Allow-SSH-Internet</code> violates CIS Azure Benchmark 5.1 and SOC 2 Type II CC6.1. Audit log attributes remediation directly to active operator <code>{activeOperator?.name || 'K V L N Kushal'}</code>.
                       </>
                     )}
                   </div>

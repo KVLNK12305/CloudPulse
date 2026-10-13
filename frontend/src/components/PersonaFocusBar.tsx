@@ -6,14 +6,16 @@ import {
   Eye,
   FileText,
   Layers,
+  Lock,
   Shield,
   Sparkles,
 } from 'lucide-react';
 import { PERSONA_CONFIGS } from '../services/personaConfig';
-import { Persona, TabType } from '../types';
+import { OperatorProfile, Persona, TabType } from '../types';
 
 interface PersonaFocusBarProps {
   activePersona: Persona;
+  activeOperator?: OperatorProfile;
   onPersonaChange: (p: Persona) => void;
   onNavigateTab: (tab: TabType) => void;
   onOpenExportBrief?: () => void;
@@ -21,6 +23,7 @@ interface PersonaFocusBarProps {
 
 export const PersonaFocusBar: React.FC<PersonaFocusBarProps> = ({
   activePersona,
+  activeOperator,
   onPersonaChange,
   onNavigateTab,
   onOpenExportBrief,
@@ -95,8 +98,37 @@ export const PersonaFocusBar: React.FC<PersonaFocusBarProps> = ({
             {config.label} POV
           </span>
 
-          <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)' }}>
-            ({config.operator.name} · {config.operator.organization})
+          <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span>
+              ({activeOperator ? activeOperator.name : config.operator.name}
+              {activeOperator?.isSuperAdmin ? (
+                <span style={{ color: '#f6ad55', fontWeight: 700, marginLeft: 4 }}>
+                  · Full Access Super-Admin
+                </span>
+              ) : (
+                ` · ${activeOperator ? activeOperator.role : config.operator.organization}`
+              )})
+            </span>
+            {activeOperator?.isSuperAdmin && (
+              <span
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 3,
+                  fontSize: '0.58rem',
+                  fontWeight: 800,
+                  fontFamily: 'var(--font-mono)',
+                  color: '#f6ad55',
+                  background: 'rgba(246, 173, 85, 0.15)',
+                  border: '1px solid rgba(246, 173, 85, 0.35)',
+                  padding: '1px 6px',
+                  borderRadius: 'var(--radius-xs)',
+                }}
+              >
+                <Sparkles size={10} color="#f6ad55" />
+                <span>FULL ACCESS</span>
+              </span>
+            )}
           </span>
         </div>
 
@@ -108,6 +140,7 @@ export const PersonaFocusBar: React.FC<PersonaFocusBarProps> = ({
           {(['secops', 'finops', 'platform', 'executive'] as Persona[]).map(p => {
             const pCfg = PERSONA_CONFIGS[p];
             const isCurrent = p === activePersona;
+            const isAllowed = !activeOperator || activeOperator.isSuperAdmin || activeOperator.allowedPersonas.includes(p);
             return (
               <button
                 key={p}
@@ -117,19 +150,25 @@ export const PersonaFocusBar: React.FC<PersonaFocusBarProps> = ({
                   borderRadius: 'var(--radius-xs)',
                   border: isCurrent ? `1px solid ${pCfg.color}` : '1px solid var(--border-subtle)',
                   background: isCurrent ? `${pCfg.color}25` : 'rgba(255, 255, 255, 0.03)',
-                  color: isCurrent ? pCfg.color : 'var(--text-tertiary)',
+                  color: isCurrent ? pCfg.color : isAllowed ? 'var(--text-tertiary)' : 'rgba(255, 255, 255, 0.35)',
                   fontSize: '0.68rem',
                   fontWeight: isCurrent ? 700 : 500,
-                  cursor: 'pointer',
+                  cursor: isAllowed ? 'pointer' : 'not-allowed',
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
                   transition: 'all 0.2s ease',
+                  opacity: isAllowed ? 1 : 0.45,
                 }}
-                title={`Switch view to ${pCfg.label}`}
+                title={
+                  isAllowed
+                    ? `Switch view to ${pCfg.label}${activeOperator?.isSuperAdmin ? ' (Full Access)' : ''}`
+                    : `Restricted: Only SecOps Commander (K V L N Kushal) has full access to assume this role.`
+                }
               >
                 {personaIcons[p]}
                 <span>{pCfg.label.split(' ')[0]}</span>
+                {!isAllowed && <Lock size={9} />}
               </button>
             );
           })}

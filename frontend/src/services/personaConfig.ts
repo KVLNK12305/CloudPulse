@@ -28,6 +28,53 @@ export interface PersonaConfig {
   }>;
 }
 
+export const OPERATOR_TEAM: OperatorProfile[] = [
+  {
+    id: 'op-kushal',
+    name: 'K V L N Kushal',
+    initials: 'KK',
+    role: 'Lead SecOps Commander & CISO (Full Access)',
+    email: 'kvlnkushal@cloudpulse.io',
+    organization: 'Enterprise Cyber Defense & Core SecOps',
+    primaryPersona: 'secops',
+    allowedPersonas: ['secops', 'executive', 'platform', 'finops'],
+    isSuperAdmin: true,
+  },
+  {
+    id: 'op-siddardha',
+    name: 'K S V siddardha',
+    initials: 'KS',
+    role: 'Platform SRE Lead',
+    email: 'siddardha@cloudpulse.io',
+    organization: 'Cloud Platform Engineering & SRE',
+    primaryPersona: 'platform',
+    allowedPersonas: ['platform'],
+    isSuperAdmin: false,
+  },
+  {
+    id: 'op-saketh',
+    name: 'R K Saketh',
+    initials: 'RS',
+    role: 'Principal FinOps Economist',
+    email: 'saketh@cloudpulse.io',
+    organization: 'Cloud Financial Operations & Economics',
+    primaryPersona: 'finops',
+    allowedPersonas: ['finops'],
+    isSuperAdmin: false,
+  },
+  {
+    id: 'op-rishinath',
+    name: 'RishinathKurup',
+    initials: 'RK',
+    role: 'Chief Information Security Officer (CISO)',
+    email: 'rishinath.kurup@cloudpulse.io',
+    organization: 'Enterprise Risk & Board Governance',
+    primaryPersona: 'executive',
+    allowedPersonas: ['executive'],
+    isSuperAdmin: false,
+  },
+];
+
 export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
   secops: {
     id: 'secops',
@@ -41,13 +88,7 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     directive:
       'Active Attack Surface Defense — Prioritizing uncontained breach vectors, unauthorized egress to 198.51.100.77:443, and live ARM isolation gates.',
     primaryTab: 'incidents',
-    operator: {
-      id: 'op-secops',
-      name: 'Alex Morgan',
-      role: 'Lead SecOps Commander',
-      email: 'alex.morgan@cloudpulse.io',
-      organization: 'Cyber Defense & IR Core',
-    },
+    operator: OPERATOR_TEAM[0],
     focusHighlights: {
       heroMetricTitle: 'Open Security Incidents',
       heroMetricReason: '1 Critical breach vector awaiting remediation gate',
@@ -90,13 +131,7 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     directive:
       'Unit Cost Variance Mitigation — Tracking $181.20 anomaly surge (+1276%), budget burn velocity, and idle cloud waste avoidance.',
     primaryTab: 'finops',
-    operator: {
-      id: 'op-finops',
-      name: 'Elena Vance',
-      role: 'Principal FinOps Economist',
-      email: 'elena.vance@cloudpulse.io',
-      organization: 'Cloud Financial Operations',
-    },
+    operator: OPERATOR_TEAM[2],
     focusHighlights: {
       heroMetricTitle: 'Correlated Overrun',
       heroMetricReason: '$181.20 unexpected spike linked directly to threat vector exfiltration',
@@ -139,13 +174,7 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     directive:
       'Infrastructure Resiliency & ARM State Fidelity — Monitoring 3 active workloads, subnet routing, and runtime metric collection health.',
     primaryTab: 'resources',
-    operator: {
-      id: 'op-platform',
-      name: 'Marcus Chen',
-      role: 'Lead Platform SRE',
-      email: 'marcus.chen@cloudpulse.io',
-      organization: 'Cloud Platform Engineering',
-    },
+    operator: OPERATOR_TEAM[1],
     focusHighlights: {
       heroMetricTitle: 'Active Cloud Workloads',
       heroMetricReason: 'Telemetry probes collecting runtime metrics and ARM topology state',
@@ -188,13 +217,7 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     directive:
       'Enterprise Risk Exposure & Audit Readiness — SLA compliance 99.4%, CIS Azure 5.1 readiness, and cross-vector executive brief exports.',
     primaryTab: 'overview',
-    operator: {
-      id: 'op-ciso',
-      name: 'Sarah Jenkins',
-      role: 'Chief Information Security Officer',
-      email: 'sarah.jenkins@cloudpulse.io',
-      organization: 'Enterprise Risk & Board Governance',
-    },
+    operator: OPERATOR_TEAM[3],
     focusHighlights: {
       heroMetricTitle: 'SecOps ↔ FinOps Concurrence',
       heroMetricReason: 'Multi-vector threat-financial concurrence spotlight active',
