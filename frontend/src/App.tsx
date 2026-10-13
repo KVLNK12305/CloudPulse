@@ -329,9 +329,23 @@ export const App: React.FC = () => {
         <PersonaFocusBar
           activePersona={activePersona}
           activeOperator={activeOperator}
+          incidents={incidents}
+          resourceCount={resources.length}
+          costTotal={estateOverview?.costs?.total_cost ?? undefined}
+          costCurrency={estateOverview?.costs?.currency}
           onPersonaChange={handlePersonaChange}
           onNavigateTab={tab => setActiveTab(tab)}
-          onOpenExportBrief={() => setCisoExportBriefOpen(true)}
+          onOpenExportBrief={() => {
+            if (incidents.length > 0) {
+              setCisoExportBriefOpen(true);
+            } else {
+              showToast(
+                'info',
+                'Estate Perimeter Nominal',
+                'Zero active incidents to export. Generate an incident brief after seeding demo telemetry.'
+              );
+            }
+          }}
         />
 
         {/* Pitch-Ready Evaluator & Multi-User Welcome Banner */}

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '../services/api';
 import { CostSummary, Incident, Persona, TabType } from '../types';
-import { PERSONA_CONFIGS } from '../services/personaConfig';
+import { getPersonaConfig, PERSONA_CONFIGS } from '../services/personaConfig';
 import { InstrumentGauge } from './InstrumentGauge';
 import { SegmentedMeter } from './SegmentedMeter';
 
@@ -83,7 +83,7 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
 
   // Budget Gauge calculations (Simulated monthly burn target: $500 baseline)
   const budgetLimit = 500;
-  const currentActual = totalCost || 181.2;
+  const currentActual = totalCost ?? 0;
   const budgetPct = Math.min(Math.round((currentActual / budgetLimit) * 100), 100);
 
   return (
@@ -115,7 +115,12 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
 
       {/* Persona Lens Banner in FinOps Console */}
       {(() => {
-        const pCfg = PERSONA_CONFIGS[activePersona];
+        const pCfg = getPersonaConfig(activePersona, {
+          incidents,
+          costTotal: currentActual,
+          costCurrency: currency,
+          topCorrIncident: topCorr,
+        });
         return (
           <div
             className="panel"
@@ -168,24 +173,51 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
             </div>
 
             <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              {activePersona === 'finops' && (
+              {topCorr ? (
                 <>
-                  <strong>Unit Economics Lens: </strong> Workload variance indicates a 13.76x deviation on <code>vm-worker-01</code>. Standard 14-day allocation is $500; actual current burn is $181.20 (36%). Unchecked egress would exhaust subscription quota in 6.2 days.
+                  {activePersona === 'finops' && (
+                    <>
+                      <strong>Unit Economics Lens: </strong> Workload variance indicates a +{topCorr.cost_impact?.percentage_increase.toFixed(0)}% deviation on <code>{topCorr.resource?.name || 'workload'}</code>. Standard 14-day allocation is ${budgetLimit}; actual current burn is {formatCurrency(currentActual, currency)} ({budgetPct}%). Unchecked egress threatens budget envelope.
+                    </>
+                  )}
+                  {activePersona === 'secops' && (
+                    <>
+                      <strong>Attacker Financial Footprint: </strong> Anomaly deviation (+{formatCurrency(topCorr.cost_impact?.deviation_absolute, topCorr.cost_impact?.currency || currency)}) is directly correlated with incident <code>{topCorr.incident_id}</code> ({topCorr.title}). Remediating this threat halts anomalous subscription egress!
+                    </>
+                  )}
+                  {activePersona === 'platform' && (
+                    <>
+                      <strong>Infrastructure Efficiency: </strong> Egress traffic spikes correspond to anomalous transfer over <code>{topCorr.resource?.name || 'interface'}</code>. Verify Azure NAT gateway / NSG egress rate limiting rules.
+                    </>
+                  )}
+                  {activePersona === 'executive' && (
+                    <>
+                      <strong>Spend Governance Lens: </strong> Correlated overage currently accounts for +{formatCurrency(topCorr.cost_impact?.deviation_absolute, topCorr.cost_impact?.currency || currency)}. Uncontained threat vectors drive compounding unit cost volatility.
+                    </>
+                  )}
                 </>
-              )}
-              {activePersona === 'secops' && (
+              ) : (
                 <>
-                  <strong>Attacker Financial Footprint: </strong> 100% of the $181.20 anomaly deviation is directly correlated with incident <code>INC-2026-001</code> (unauthorized egress to <code>198.51.100.77:443</code>). Remediating this threat halts 92.7% of total subscription billing!
-                </>
-              )}
-              {activePersona === 'platform' && (
-                <>
-                  <strong>Infrastructure Efficiency: </strong> Egress traffic spikes correspond to 16.5 GB transfer over <code>nic-worker-01</code> ($0.087/GB). Verify Azure NAT gateway / NSG egress rate limiting rules.
-                </>
-              )}
-              {activePersona === 'executive' && (
-                <>
-                  <strong>Spend Governance Lens: </strong> Correlated overage currently accounts for $181.20. Projecting this incident over an annual baseline indicates a potential $52,080 annual runaway waste if left uncontained.
+                  {activePersona === 'finops' && (
+                    <>
+                      <strong>Unit Economics Lens: </strong> Cloud spend is operating within nominal parameters. Standard 14-day allocation is ${budgetLimit}; actual burn is {formatCurrency(currentActual, currency)} ({budgetPct}%). Zero statistical cost outliers or threat overruns detected.
+                    </>
+                  )}
+                  {activePersona === 'secops' && (
+                    <>
+                      <strong>Attacker Financial Footprint: </strong> Zero financial overages linked to security threats. Workloads are operating within standard egress and compute baselines.
+                    </>
+                  )}
+                  {activePersona === 'platform' && (
+                    <>
+                      <strong>Infrastructure Efficiency: </strong> Workload network egress is nominal. Telemetry health and NAT gateway metrics report optimal zero-loss throughput.
+                    </>
+                  )}
+                  {activePersona === 'executive' && (
+                    <>
+                      <strong>Spend Governance Lens: </strong> Enterprise spend is aligned with budgeted unit economics. Zero high-exposure threat overages active.
+                    </>
+                  )}
                 </>
               )}
             </div>
@@ -304,7 +336,7 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
           maxValue={5.0}
           displayValue={topCorr ? '3.4x' : '0.8x'}
           unit="CV VARIANCE"
-          sublabel="Threshold: 1.5 CV | P99 Anomaly Trigger"
+          sublabel={topCorr ? 'Threshold: 1.5 CV | P99 Anomaly Trigger' : 'Nominal variance envelope (CV < 1.0)'}
           comparisonText="Sigma Baseline: 0.8"
           scaleTicks={[
             { value: 0, label: '0' },

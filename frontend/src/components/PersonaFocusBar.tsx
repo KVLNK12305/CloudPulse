@@ -10,12 +10,16 @@ import {
   Shield,
   Sparkles,
 } from 'lucide-react';
-import { PERSONA_CONFIGS } from '../services/personaConfig';
-import { OperatorProfile, Persona, TabType } from '../types';
+import { getPersonaConfig, PERSONA_CONFIGS } from '../services/personaConfig';
+import { Incident, OperatorProfile, Persona, TabType } from '../types';
 
 interface PersonaFocusBarProps {
   activePersona: Persona;
   activeOperator?: OperatorProfile;
+  incidents?: Incident[];
+  resourceCount?: number;
+  costTotal?: number;
+  costCurrency?: string;
   onPersonaChange: (p: Persona) => void;
   onNavigateTab: (tab: TabType) => void;
   onOpenExportBrief?: () => void;
@@ -24,11 +28,20 @@ interface PersonaFocusBarProps {
 export const PersonaFocusBar: React.FC<PersonaFocusBarProps> = ({
   activePersona,
   activeOperator,
+  incidents = [],
+  resourceCount = 0,
+  costTotal,
+  costCurrency,
   onPersonaChange,
   onNavigateTab,
   onOpenExportBrief,
 }) => {
-  const config = PERSONA_CONFIGS[activePersona];
+  const config = getPersonaConfig(activePersona, {
+    incidents,
+    resourceCount,
+    costTotal,
+    costCurrency,
+  });
 
   const handleActionClick = () => {
     if (activePersona === 'executive' && onOpenExportBrief) {
@@ -138,7 +151,12 @@ export const PersonaFocusBar: React.FC<PersonaFocusBarProps> = ({
             Switch Role POV:
           </span>
           {(['secops', 'finops', 'platform', 'executive'] as Persona[]).map(p => {
-            const pCfg = PERSONA_CONFIGS[p];
+            const pCfg = getPersonaConfig(p, {
+              incidents,
+              resourceCount,
+              costTotal,
+              costCurrency,
+            });
             const isCurrent = p === activePersona;
             const isAllowed = !activeOperator || activeOperator.isSuperAdmin || activeOperator.allowedPersonas.includes(p);
             return (

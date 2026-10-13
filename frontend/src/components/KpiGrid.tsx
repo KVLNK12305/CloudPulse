@@ -58,17 +58,15 @@ export const KpiGrid: React.FC<KpiGridProps> = ({
     : '14-day evaluation window';
 
   // 3. Active Incidents
-  const totalIncidents = incidents.length > 0 ? incidents.length : estateOverview?.security?.total_incidents || 0;
-  const critCount = incidents.length > 0
-    ? incidents.filter(i => i.severity === 'CRITICAL' || i.severity === 'HIGH').length
-    : (estateOverview?.security?.by_severity?.CRITICAL || 0) + (estateOverview?.security?.by_severity?.HIGH || 0);
+  const openIncidents = incidents.filter(i => i.status === 'OPEN' || i.status === 'INVESTIGATING');
+  const openCount = openIncidents.length;
+  const totalIncidents = incidents.length;
+  const critCount = openIncidents.filter(i => i.severity === 'CRITICAL' || i.severity === 'HIGH').length;
 
   // 4. Correlated Incidents
-  const correlatedCount = incidents.length > 0
-    ? incidents.filter(i => !!i.cost_impact).length
-    : estateOverview?.security?.correlated_incidents || 0;
+  const correlatedCount = openIncidents.filter(i => !!i.cost_impact).length;
 
-  // 5. AI Triaged Workloads
+  // 5. AI Triaged Workloads1
   const triagedIncidents = incidents.filter(i => i.ai_analysis && i.ai_analysis.status === 'COMPLETED');
   const triagedCount = triagedIncidents.length;
   const liveTriaged = triagedIncidents.filter(
@@ -187,11 +185,15 @@ export const KpiGrid: React.FC<KpiGridProps> = ({
             <span className="kpi-source-tag">CloudPulse SecOps</span>
           )}
         </div>
-        <span className="kpi-value" style={{ color: '#fc8181' }}>
-          {totalIncidents}
+        <span className="kpi-value" style={{ color: openCount === 0 ? '#38d9a9' : '#fc8181' }}>
+          {openCount}
         </span>
-        <span className="kpi-subtext" style={{ color: '#fb7185' }}>
-          {critCount} Critical/High priority
+        <span className="kpi-subtext" style={{ color: openCount === 0 ? 'var(--text-secondary)' : '#fb7185' }}>
+          {openCount === 0
+            ? totalIncidents > 0
+              ? `${totalIncidents} Contained / Resolved`
+              : 'Perimeter Nominal · 0 Open'
+            : `${critCount} Critical/High priority`}
         </span>
       </div>
 
@@ -220,10 +222,12 @@ export const KpiGrid: React.FC<KpiGridProps> = ({
             <span className="kpi-source-tag">Cross-Correlation</span>
           )}
         </div>
-        <span className="kpi-value" style={{ color: '#06b6d4' }}>
+        <span className="kpi-value" style={{ color: correlatedCount === 0 ? 'var(--text-secondary)' : '#06b6d4' }}>
           {correlatedCount}
         </span>
-        <span className="kpi-subtext">Security & Cost confluence</span>
+        <span className="kpi-subtext">
+          {correlatedCount === 0 ? 'Zero Cost Deviations' : 'Security & Cost confluence'}
+        </span>
       </div>
 
       {/* 5. AI Triaged */}

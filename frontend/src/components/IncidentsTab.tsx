@@ -28,7 +28,7 @@ import {
   Persona,
   Severity,
 } from '../types';
-import { PERSONA_CONFIGS } from '../services/personaConfig';
+import { getPersonaConfig, PERSONA_CONFIGS } from '../services/personaConfig';
 import { ActionModal } from './ActionModal';
 import { ExportBriefModal } from './ExportBriefModal';
 
@@ -378,7 +378,17 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
         {!selectedIncident ? (
           <div className="panel empty-state" style={{ padding: '80px 20px' }}>
             <ShieldAlert size={36} color="var(--text-tertiary)" style={{ marginBottom: '12px' }} />
-            <div>Select an incident from the feed to inspect telemetry, FinOps correlation, and AI triage.</div>
+            {incidents.length === 0 ? (
+              <div style={{ maxWidth: '440px', margin: '0 auto', lineHeight: 1.6 }}>
+                <strong style={{ color: 'var(--text-primary)', display: 'block', marginBottom: '6px' }}>
+                  Zero Active Incidents Detected
+                </strong>
+                All cloud workloads are operating within nominal security and financial baselines.
+                To simulate a live multi-vector attack scenario, click <strong>"Seed Demo"</strong> in the top navigation bar.
+              </div>
+            ) : (
+              <div>Select an incident from the feed to inspect telemetry, FinOps correlation, and AI triage.</div>
+            )}
           </div>
         ) : (
           <>
@@ -512,7 +522,18 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
 
             {/* Persona-Specific Operational Lens Banner */}
             {(() => {
-              const pCfg = PERSONA_CONFIGS[activePersona];
+              const pCfg = getPersonaConfig(activePersona, {
+                incidents,
+                topCorrIncident: selectedIncident?.cost_impact ? selectedIncident : null,
+              });
+              const isResolved = selectedIncident.status === 'RESOLVED' || selectedIncident.status === 'CLOSED';
+              const costImpact = selectedIncident.cost_impact;
+              const rName = selectedIncident.resource?.name || 'workload';
+              const devAbsolute = costImpact?.deviation_absolute || 0;
+              const pctInc = costImpact?.percentage_increase || 0;
+              const curr = costImpact?.currency || 'USD';
+              const estSavingsMonthly = devAbsolute > 0 ? (devAbsolute * 30) / 14 : 0;
+
               return (
                 <div
                   className="panel"
@@ -560,7 +581,11 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                           border: '1px solid rgba(56, 217, 169, 0.35)',
                         }}
                       >
-                        ROI: Avoids ~$4,340 / Mo
+                        {isResolved
+                          ? 'Overrun Arrested'
+                          : estSavingsMonthly > 0
+                          ? `ROI: Avoids ~${formatCurrency(estSavingsMonthly, curr)} / Mo`
+                          : 'Zero Cost Anomaly'}
                       </span>
                     )}
 
@@ -584,24 +609,52 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
 
                   <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                     {activePersona === 'secops' && (
-                      <>
-                        <strong>Containment Priority: </strong> Unchecked outbound exfiltration on port 443 to external destination IP <code>198.51.100.77</code>. Remediation gate is armed to isolate NIC <code>nic-worker-01</code> and revoke internet-facing SSH.
-                      </>
+                      isResolved ? (
+                        <>
+                          <strong>Post-Incident Assurance: </strong> Threat vector neutralized. Workload <code>{rName}</code> is contained, egress terminated, and perimeter integrity verified by operator <code>{activeOperator?.name || 'SecOps'}</code>.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Containment Priority: </strong> Active breach vector on <code>{rName}</code> ({selectedIncident.title}). Remediation gate is armed to isolate network interfaces and enforce zero-trust containment.
+                        </>
+                      )
                     )}
                     {activePersona === 'finops' && (
-                      <>
-                        <strong>Run-Rate Overrun: </strong> Workload deviation is driving $181.20 in unexpected billing (+1276% over 14-day baseline). Authorizing containment halts the active data egress flow, saving an estimated <strong>$4,340/month</strong> in runaway egress overage.
-                      </>
+                      isResolved ? (
+                        <>
+                          <strong>Financial Containment Verified: </strong> Threat-driven cost surge arrested. Runaway egress meter halted; recurring monthly waste avoided.
+                        </>
+                      ) : costImpact ? (
+                        <>
+                          <strong>Run-Rate Overrun: </strong> Workload deviation is driving +{formatCurrency(devAbsolute, curr)} in unexpected billing (+{pctInc.toFixed(0)}% over 14-day baseline). Authorizing containment halts active data egress flow, saving an estimated <strong>{formatCurrency(estSavingsMonthly, curr)}/month</strong> in runaway overage.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Spend Governance Lens: </strong> Workload under security audit; no direct billing deviation detected in active closed cycle.
+                        </>
+                      )
                     )}
                     {activePersona === 'platform' && (
-                      <>
-                        <strong>Infrastructure Blast Radius: </strong> Workload <code>vm-worker-01</code> is attached to subnet <code>snet-worker</code> within <code>vnet-cloudpulse</code>. Remediation strictly drops worker traffic; virtual network core and database tiers remain fully online.
-                      </>
+                      isResolved ? (
+                        <>
+                          <strong>Infrastructure Health Restored: </strong> Workload <code>{rName}</code> isolated and quarantined. Core virtual network and database tiers remain fully online.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Infrastructure Blast Radius: </strong> Workload <code>{rName}</code> ({selectedIncident.resource?.type || 'compute'}). Remediation strictly isolates target workload; virtual network core and database tiers remain fully online.
+                        </>
+                      )
                     )}
                     {activePersona === 'executive' && (
-                      <>
-                        <strong>Compliance Exposure: </strong> Inbound SSH rule <code>Allow-SSH-Internet</code> violates CIS Azure Benchmark 5.1 and SOC 2 Type II CC6.1. Audit log attributes remediation directly to active operator <code>{activeOperator?.name || 'K V L N Kushal'}</code>.
-                      </>
+                      isResolved ? (
+                        <>
+                          <strong>Audit & Compliance Closed: </strong> Remediation audited and logged in forensic record. Regulatory posture (SOC 2 / CIS) restored and signed off by <code>{activeOperator?.name || 'Lead Operator'}</code>.
+                        </>
+                      ) : (
+                        <>
+                          <strong>Compliance Exposure: </strong> Incident <code>{selectedIncident.incident_id}</code> flagged against cloud security baselines. Remediation actions require authorized operator approval ({activeOperator?.name || 'Lead Operator'}).
+                        </>
+                      )
                     )}
                   </div>
                 </div>

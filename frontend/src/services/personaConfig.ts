@@ -1,4 +1,4 @@
-import { OperatorProfile, Persona, TabType } from '../types';
+import { Incident, OperatorProfile, Persona, TabType } from '../types';
 
 export interface PersonaConfig {
   id: Persona;
@@ -80,42 +80,42 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     id: 'secops',
     label: 'SecOps Commander',
     roleTitle: 'Security Operations & Threat Response',
-    badge: 'THREAT VECTOR DEFENSE',
+    badge: 'PERIMETER SECURE',
     color: '#fc8181',
     accentBg: 'rgba(252, 129, 129, 0.08)',
     accentBorder: 'rgba(252, 129, 129, 0.28)',
     tagline: 'Zero-Trust Blast Radius & Remediation Gate',
     directive:
-      'Active Attack Surface Defense — Prioritizing uncontained breach vectors, unauthorized egress to 198.51.100.77:443, and live ARM isolation gates.',
+      'Zero-Trust Perimeter Defense — All workloads nominal. 0 open security threats, egress filtering active, zero uncontained breach vectors.',
     primaryTab: 'incidents',
     operator: OPERATOR_TEAM[0],
     focusHighlights: {
       heroMetricTitle: 'Open Security Incidents',
-      heroMetricReason: '1 Critical breach vector awaiting remediation gate',
-      quickFilterLabel: 'Critical Threats Only',
-      suggestedAction: 'Review Containment Gate',
-      actionTab: 'incidents',
+      heroMetricReason: '0 uncontained breach vectors · Perimeter active',
+      quickFilterLabel: 'Perimeter Active',
+      suggestedAction: 'Audit Perimeter Rules',
+      actionTab: 'resources',
     },
     lensDescription:
-      'Prioritizing vulnerable workloads, external attacker IPs, anomalous data exfiltration, and ARM containment authorization.',
+      'Prioritizing zero-trust workload boundaries, NSG egress filtering, and automated ARM containment readiness.',
     keyInsights: [
       {
         label: 'Active Attack Vectors',
-        value: '1 Uncontained',
-        subtext: 'vm-worker-01 (SSH Port 22)',
-        status: 'critical',
+        value: '0 Detected',
+        subtext: 'Firewall & NSG boundaries nominal',
+        status: 'optimal',
       },
       {
         label: 'Exfiltration Target',
-        value: '198.51.100.77:443',
-        subtext: '16.5 GB anomalous outbound transfer',
-        status: 'critical',
+        value: 'None Active',
+        subtext: 'Nominal outbound network flow',
+        status: 'optimal',
       },
       {
         label: 'Containment Gate',
-        value: 'Human Auth Req',
-        subtext: 'Isolate NIC / Revoke NSG Rule',
-        status: 'warning',
+        value: 'Standby / Armed',
+        subtext: 'Zero mutations pending',
+        status: 'info',
       },
     ],
   },
@@ -123,42 +123,42 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     id: 'finops',
     label: 'FinOps Economist',
     roleTitle: 'Cloud Financial Management & Unit Economics',
-    badge: 'UNIT ECONOMICS & VARIANCE',
+    badge: 'UNIT ECONOMICS NOMINAL',
     color: '#38d9a9',
     accentBg: 'rgba(56, 217, 169, 0.08)',
     accentBorder: 'rgba(56, 217, 169, 0.28)',
     tagline: 'Cost Anomaly Correlation & Run-Rate Governance',
     directive:
-      'Unit Cost Variance Mitigation — Tracking $181.20 anomaly surge (+1276%), budget burn velocity, and idle cloud waste avoidance.',
+      'Unit Cost Variance Governance — Tracking spend velocity, 14-day statistical baseline, and idle cloud waste avoidance.',
     primaryTab: 'finops',
     operator: OPERATOR_TEAM[2],
     focusHighlights: {
       heroMetricTitle: 'Correlated Overrun',
-      heroMetricReason: '$181.20 unexpected spike linked directly to threat vector exfiltration',
+      heroMetricReason: '+$0.00 anomaly deviation — Workload spend within budget envelope',
       quickFilterLabel: 'Sort by Highest Billed Cost',
-      suggestedAction: 'Audit Anomaly Multipliers',
+      suggestedAction: 'Audit Cost Baseline',
       actionTab: 'finops',
     },
     lensDescription:
-      'Prioritizing unit cost economics, statistical baseline deviation (CV > 1.5), and projected monthly budget burn velocity.',
+      'Prioritizing unit cost economics, statistical baseline deviation (CV < 1.0), and projected monthly budget burn velocity.',
     keyInsights: [
       {
         label: 'Unplanned Outlier Surge',
-        value: '+$181.20 Egress',
-        subtext: '+1276% peak baseline deviation',
-        status: 'critical',
+        value: '+$0.00 Egress',
+        subtext: 'Nominal baseline variance (CV < 1.0)',
+        status: 'optimal',
       },
       {
-        label: 'Containment Run-Rate ROI',
-        value: '$4,340 / mo',
-        subtext: 'Projected monthly billing avoidance',
+        label: 'Budget Variance Multiplier',
+        value: '0.8x Stable',
+        subtext: 'Standard sigma envelope',
         status: 'optimal',
       },
       {
         label: 'Budget Window Trajectory',
-        value: '36% Burned',
-        subtext: '$181.20 of $500.00 14-day cycle',
-        status: 'info',
+        value: 'Nominal Burn',
+        subtext: 'Tracking within $500.00 14-day cycle',
+        status: 'optimal',
       },
     ],
   },
@@ -193,7 +193,7 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
       },
       {
         label: 'Subnet Blast Radius',
-        value: 'snet-worker Isolated',
+        value: 'Network Isolated',
         subtext: 'vnet-cloudpulse database tier protected',
         status: 'optimal',
       },
@@ -215,14 +215,14 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     accentBorder: 'rgba(183, 148, 244, 0.28)',
     tagline: 'Macro Cloud Exposure & Board-Ready Audit Briefs',
     directive:
-      'Enterprise Risk Exposure & Audit Readiness — SLA compliance 99.4%, CIS Azure 5.1 readiness, and cross-vector executive brief exports.',
+      'Enterprise Risk Exposure & Audit Readiness — SLA compliance 99.8%, CIS Azure 5.1 readiness, zero active high-exposure breach vectors.',
     primaryTab: 'overview',
     operator: OPERATOR_TEAM[3],
     focusHighlights: {
-      heroMetricTitle: 'SecOps ↔ FinOps Concurrence',
-      heroMetricReason: 'Multi-vector threat-financial concurrence spotlight active',
-      quickFilterLabel: 'High-Exposure Assets Only',
-      suggestedAction: 'Generate Executive Brief',
+      heroMetricTitle: 'Enterprise Risk Exposure',
+      heroMetricReason: '0 active threats · Baseline compliance verified',
+      quickFilterLabel: 'All Monitored Assets',
+      suggestedAction: 'Export CISO Executive Brief',
       actionTab: 'overview',
     },
     lensDescription:
@@ -230,22 +230,495 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     keyInsights: [
       {
         label: 'Enterprise Risk Score',
-        value: 'High Exposure',
-        subtext: '1 Critical correlated incident active',
-        status: 'critical',
+        value: 'Low Exposure',
+        subtext: '0 correlated threat incidents',
+        status: 'optimal',
       },
       {
         label: 'Compliance Scope',
         value: 'SOC 2 & CIS 5.1',
-        subtext: 'Unrestricted SSH rule flagged',
-        status: 'warning',
+        subtext: 'Zero high-severity violations',
+        status: 'optimal',
       },
       {
         label: 'Board Incident Brief',
-        value: 'Export Ready',
+        value: 'Audit Ready',
         subtext: '1-Click Markdown, Jira, and Slack format',
         status: 'info',
       },
     ],
   },
 };
+
+export interface PersonaTelemetryContext {
+  incidents?: Incident[];
+  resourceCount?: number;
+  costTotal?: number;
+  costCurrency?: string;
+  topCorrIncident?: Incident | null;
+}
+
+export function getPersonaConfig(
+  persona: Persona,
+  ctx?: PersonaTelemetryContext
+): PersonaConfig {
+  const base = PERSONA_CONFIGS[persona];
+  if (!ctx) return base;
+
+  const incidents = ctx.incidents || [];
+  const openIncidents = incidents.filter(
+    i => i.status === 'OPEN' || i.status === 'INVESTIGATING'
+  );
+  const resolvedIncidents = incidents.filter(
+    i => i.status === 'RESOLVED' || i.status === 'CLOSED'
+  );
+
+  const topCorr =
+    ctx.topCorrIncident !== undefined
+      ? ctx.topCorrIncident
+      : incidents.find(i => !!i.cost_impact) || null;
+
+  const costTotal = ctx.costTotal ?? 0;
+  const currency = ctx.costCurrency || 'USD';
+  const resourceCount = ctx.resourceCount ?? 0;
+
+  const formatCurr = (val: number, cur = currency) =>
+    new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: cur,
+      maximumFractionDigits: 2,
+    }).format(val);
+
+  const budgetLimit = 500;
+  const budgetPct = Math.min(Math.round((costTotal / budgetLimit) * 100), 100);
+
+  // 1. SECOPS
+  if (persona === 'secops') {
+    if (openIncidents.length === 0 && resolvedIncidents.length === 0) {
+      return {
+        ...base,
+        badge: 'PERIMETER SECURE',
+        directive:
+          'Zero-Trust Perimeter Defense — All workloads nominal. 0 open security threats, egress filtering active, zero uncontained breach vectors.',
+        focusHighlights: {
+          heroMetricTitle: 'Open Security Incidents',
+          heroMetricReason: '0 uncontained breach vectors · Perimeter active',
+          quickFilterLabel: 'Perimeter Active',
+          suggestedAction: 'Audit Perimeter Rules',
+          actionTab: 'resources',
+        },
+        lensDescription:
+          'Prioritizing zero-trust workload boundaries, NSG egress filtering, and automated ARM containment readiness.',
+        keyInsights: [
+          {
+            label: 'Active Attack Vectors',
+            value: '0 Detected',
+            subtext: 'Firewall & NSG boundaries nominal',
+            status: 'optimal',
+          },
+          {
+            label: 'Exfiltration Target',
+            value: 'None Active',
+            subtext: 'Nominal outbound network flow',
+            status: 'optimal',
+          },
+          {
+            label: 'Containment Gate',
+            value: 'Standby / Armed',
+            subtext: 'Zero mutations pending',
+            status: 'info',
+          },
+        ],
+      };
+    }
+
+    if (openIncidents.length === 0 && resolvedIncidents.length > 0) {
+      return {
+        ...base,
+        badge: 'THREAT CONTAINED',
+        directive:
+          'Perimeter Remediated — All identified breach vectors neutralized and quarantined. Forensic telemetry verified.',
+        focusHighlights: {
+          heroMetricTitle: 'Remediated Incidents',
+          heroMetricReason: 'All threat vectors contained and verified',
+          quickFilterLabel: 'Resolved Incidents',
+          suggestedAction: 'View Audit Log',
+          actionTab: 'incidents',
+        },
+        lensDescription:
+          'Post-incident verification, forensic audit logs, and verified cloud containment assurance.',
+        keyInsights: [
+          {
+            label: 'Active Attack Vectors',
+            value: '0 Uncontained',
+            subtext: 'All workloads quarantined',
+            status: 'optimal',
+          },
+          {
+            label: 'Exfiltration Target',
+            value: 'Halted',
+            subtext: 'Outbound flow terminated',
+            status: 'optimal',
+          },
+          {
+            label: 'Containment Gate',
+            value: 'Executed',
+            subtext: 'ARM isolation applied',
+            status: 'optimal',
+          },
+        ],
+      };
+    }
+
+    const topInc = openIncidents[0];
+    return {
+      ...base,
+      badge: 'THREAT VECTOR DEFENSE',
+      directive: `Active Attack Surface Defense — Prioritizing ${openIncidents.length} uncontained breach vector${
+        openIncidents.length > 1 ? 's' : ''
+      } on ${topInc.resource?.name || 'workload'}, unauthorized egress, and live ARM isolation gates.`,
+      focusHighlights: {
+        heroMetricTitle: 'Open Security Incidents',
+        heroMetricReason: `${openIncidents.length} Critical breach vector${
+          openIncidents.length > 1 ? 's' : ''
+        } awaiting remediation gate`,
+        quickFilterLabel: 'Critical Threats Only',
+        suggestedAction: 'Review Containment Gate',
+        actionTab: 'incidents',
+      },
+      lensDescription:
+        'Prioritizing vulnerable workloads, external attacker IPs, anomalous data exfiltration, and ARM containment authorization.',
+      keyInsights: [
+        {
+          label: 'Active Attack Vectors',
+          value: `${openIncidents.length} Uncontained`,
+          subtext: `${topInc.resource?.name || 'workload'} (${topInc.title})`,
+          status: 'critical',
+        },
+        {
+          label: 'Exfiltration Target',
+          value: topInc.cost_impact
+            ? `+${topInc.cost_impact.percentage_increase.toFixed(0)}% Surge`
+            : topInc.identity?.caller_ip || 'Suspicious Egress',
+          subtext: topInc.cost_impact
+            ? `+${formatCurr(
+                topInc.cost_impact.deviation_absolute,
+                topInc.cost_impact.currency
+              )} deviation`
+            : 'Anomalous outbound transfer',
+          status: 'critical',
+        },
+        {
+          label: 'Containment Gate',
+          value: 'Human Auth Req',
+          subtext: 'Isolate NIC / Revoke NSG Rule',
+          status: 'warning',
+        },
+      ],
+    };
+  }
+
+  // 2. FINOPS
+  if (persona === 'finops') {
+    const isTopCorrResolved =
+      topCorr &&
+      (topCorr.status === 'RESOLVED' || topCorr.status === 'CLOSED');
+
+    if (isTopCorrResolved) {
+      const devAbs = topCorr?.cost_impact?.deviation_absolute || 181.2;
+      return {
+        ...base,
+        badge: 'OVERRUN ARRESTED',
+        directive: `Run-Rate Recovered — Threat-driven egress halted. Overrun of +${formatCurr(
+          devAbs,
+          topCorr?.cost_impact?.currency || currency
+        )} arrested. Monthly avoidance secured.`,
+        focusHighlights: {
+          heroMetricTitle: 'Arrested Overrun',
+          heroMetricReason:
+            'Contained threat vector halted runaway monthly egress waste',
+          quickFilterLabel: 'Sort by Highest Billed Cost',
+          suggestedAction: 'Audit Cost Baseline',
+          actionTab: 'finops',
+        },
+        lensDescription:
+          'Post-containment unit economics, verified billing halt, and monthly savings realization.',
+        keyInsights: [
+          {
+            label: 'Unplanned Outlier Surge',
+            value: 'Arrested',
+            subtext: 'Egress meter halted post-containment',
+            status: 'optimal',
+          },
+          {
+            label: 'Containment Run-Rate ROI',
+            value: `Avoided ~${formatCurr((devAbs * 30) / 14, currency)}/mo`,
+            subtext: 'Runaway billing prevented',
+            status: 'optimal',
+          },
+          {
+            label: 'Budget Window Trajectory',
+            value: `${budgetPct}% Burned`,
+            subtext: `${formatCurr(costTotal, currency)} of $500.00 14-day cycle`,
+            status: 'optimal',
+          },
+        ],
+      };
+    }
+
+    if (!topCorr || openIncidents.length === 0) {
+      return {
+        ...base,
+        badge: 'UNIT ECONOMICS NOMINAL',
+        directive: `Unit Cost Variance Governance — Cloud spend tracking within nominal baseline (${formatCurr(
+          costTotal,
+          currency
+        )} actual). Zero statistical cost outliers or threat overruns.`,
+        focusHighlights: {
+          heroMetricTitle: 'Correlated Overrun',
+          heroMetricReason:
+            '+$0.00 anomaly deviation — All workloads within nominal budget',
+          quickFilterLabel: 'Sort by Highest Billed Cost',
+          suggestedAction: 'Audit Cost Baseline',
+          actionTab: 'finops',
+        },
+        lensDescription:
+          'Prioritizing unit cost economics, statistical baseline deviation (CV < 1.0), and projected monthly budget burn velocity.',
+        keyInsights: [
+          {
+            label: 'Unplanned Outlier Surge',
+            value: '+$0.00 Egress',
+            subtext: 'Nominal baseline variance (CV < 1.0)',
+            status: 'optimal',
+          },
+          {
+            label: 'Budget Variance Multiplier',
+            value: '0.8x Stable',
+            subtext: 'Standard sigma envelope',
+            status: 'optimal',
+          },
+          {
+            label: 'Budget Window Trajectory',
+            value: `${budgetPct}% Burned`,
+            subtext: `${formatCurr(costTotal, currency)} of $500.00 14-day cycle`,
+            status: budgetPct > 80 ? 'warning' : 'optimal',
+          },
+        ],
+      };
+    }
+
+    const devAbs = topCorr.cost_impact?.deviation_absolute || 181.2;
+    const pctInc = topCorr.cost_impact?.percentage_increase || 1276;
+    const curr = topCorr.cost_impact?.currency || currency;
+
+    return {
+      ...base,
+      badge: 'UNIT ECONOMICS & VARIANCE',
+      directive: `Unit Cost Variance Mitigation — Tracking +${formatCurr(
+        devAbs,
+        curr
+      )} anomaly surge (+${pctInc.toFixed(
+        0
+      )}%), budget burn velocity, and idle cloud waste avoidance.`,
+      focusHighlights: {
+        heroMetricTitle: 'Correlated Overrun',
+        heroMetricReason: `+${formatCurr(
+          devAbs,
+          curr
+        )} unexpected spike linked directly to threat vector exfiltration`,
+        quickFilterLabel: 'Sort by Highest Billed Cost',
+        suggestedAction: 'Audit Anomaly Multipliers',
+        actionTab: 'finops',
+      },
+      lensDescription:
+        'Prioritizing unit cost economics, statistical baseline deviation (CV > 1.5), and projected monthly budget burn velocity.',
+      keyInsights: [
+        {
+          label: 'Unplanned Outlier Surge',
+          value: `+${formatCurr(devAbs, curr)} Egress`,
+          subtext: `+${pctInc.toFixed(0)}% peak baseline deviation`,
+          status: 'critical',
+        },
+        {
+          label: 'Containment Run-Rate ROI',
+          value: `~${formatCurr((devAbs * 30) / 14, curr)} / mo`,
+          subtext: 'Projected monthly billing avoidance',
+          status: 'optimal',
+        },
+        {
+          label: 'Budget Window Trajectory',
+          value: `${budgetPct}% Burned`,
+          subtext: `${formatCurr(costTotal, currency)} of $500.00 14-day cycle`,
+          status: 'info',
+        },
+      ],
+    };
+  }
+
+  // 3. PLATFORM
+  if (persona === 'platform') {
+    const isTargeted = openIncidents.length > 0;
+    const targetName = openIncidents[0]?.resource?.name || 'Worker';
+    return {
+      ...base,
+      badge: 'INFRASTRUCTURE & TOPOLOGY',
+      directive: `Infrastructure Resiliency & ARM State Fidelity — Monitoring ${
+        resourceCount || 3
+      } active workloads, subnet routing, and runtime metric collection health.`,
+      focusHighlights: {
+        heroMetricTitle: 'Active Cloud Workloads',
+        heroMetricReason:
+          'Telemetry probes collecting runtime metrics and ARM topology state',
+        quickFilterLabel: 'Filter: Monitored Workloads Only',
+        suggestedAction: 'Inspect Resource Graph',
+        actionTab: 'resources',
+      },
+      lensDescription:
+        'Prioritizing ARM topology mappings, NIC bindings, NSG firewall rules, and Azure Monitor telemetry health.',
+      keyInsights: [
+        {
+          label: 'Discovered ARM Workloads',
+          value: `${resourceCount || 3} Resources`,
+          subtext: 'VM, Network Interface, NSG',
+          status: 'info',
+        },
+        {
+          label: 'Subnet Blast Radius',
+          value: isTargeted ? `${targetName} Targeted` : 'Network Isolated',
+          subtext: 'vnet-cloudpulse database tier protected',
+          status: 'optimal',
+        },
+        {
+          label: 'Runtime Metric Probes',
+          value: 'Healthy (15s)',
+          subtext: 'Azure Monitor metric pipeline live',
+          status: 'optimal',
+        },
+      ],
+    };
+  }
+
+  // 4. EXECUTIVE / CISO
+  if (persona === 'executive') {
+    if (openIncidents.length === 0 && resolvedIncidents.length === 0) {
+      return {
+        ...base,
+        badge: 'GOVERNANCE & RISK OVERSIGHT',
+        directive:
+          'Enterprise Risk Exposure & Audit Readiness — SLA compliance 99.8%, CIS Azure 5.1 readiness, zero active high-exposure breach vectors.',
+        focusHighlights: {
+          heroMetricTitle: 'Enterprise Risk Exposure',
+          heroMetricReason: '0 active threats · Baseline compliance verified',
+          quickFilterLabel: 'All Monitored Assets',
+          suggestedAction: 'Export CISO Executive Brief',
+          actionTab: 'overview',
+        },
+        lensDescription:
+          'Prioritizing macro risk exposure, regulatory compliance (SOC2/CIS), executive incident briefs, and board audit readiness.',
+        keyInsights: [
+          {
+            label: 'Enterprise Risk Score',
+            value: 'Low Exposure',
+            subtext: '0 correlated threat incidents',
+            status: 'optimal',
+          },
+          {
+            label: 'Compliance Scope',
+            value: 'SOC 2 & CIS 5.1',
+            subtext: 'Zero high-severity violations',
+            status: 'optimal',
+          },
+          {
+            label: 'Board Incident Brief',
+            value: 'Audit Ready',
+            subtext: '1-Click Markdown, Jira, and Slack format',
+            status: 'info',
+          },
+        ],
+      };
+    }
+
+    if (openIncidents.length === 0 && resolvedIncidents.length > 0) {
+      return {
+        ...base,
+        badge: 'AUDIT ASSURANCE',
+        directive:
+          'Enterprise Risk Restored — Breach contained and documented. Post-incident forensic audit ready for board review.',
+        focusHighlights: {
+          heroMetricTitle: 'Enterprise Risk Exposure',
+          heroMetricReason:
+            'All incidents remediated · Compliance restored',
+          quickFilterLabel: 'Remediated Incidents',
+          suggestedAction: 'Export Forensic Brief',
+          actionTab: 'overview',
+        },
+        lensDescription:
+          'Post-incident governance, forensic audit verification, and executive stakeholder briefing.',
+        keyInsights: [
+          {
+            label: 'Enterprise Risk Score',
+            value: 'Remediated',
+            subtext: 'Zero uncontained vectors',
+            status: 'optimal',
+          },
+          {
+            label: 'Compliance Scope',
+            value: 'SOC 2 & CIS 5.1',
+            subtext: 'Remediation actions audited',
+            status: 'optimal',
+          },
+          {
+            label: 'Board Incident Brief',
+            value: 'Post-Mortem Ready',
+            subtext: 'Forensic brief export ready',
+            status: 'info',
+          },
+        ],
+      };
+    }
+
+    return {
+      ...base,
+      badge: 'GOVERNANCE & RISK OVERSIGHT',
+      directive: `Enterprise Risk Exposure & Audit Readiness — Tracking ${
+        openIncidents.length
+      } active critical threat vector${
+        openIncidents.length > 1 ? 's' : ''
+      }, SLA compliance 99.4%, and cross-vector executive brief exports.`,
+      focusHighlights: {
+        heroMetricTitle: 'SecOps ↔ FinOps Concurrence',
+        heroMetricReason:
+          'Multi-vector threat-financial concurrence spotlight active',
+        quickFilterLabel: 'High-Exposure Assets Only',
+        suggestedAction: 'Generate Executive Brief',
+        actionTab: 'overview',
+      },
+      lensDescription:
+        'Prioritizing macro risk exposure, regulatory compliance (SOC2/CIS), executive incident briefs, and board audit readiness.',
+      keyInsights: [
+        {
+          label: 'Enterprise Risk Score',
+          value: 'High Exposure',
+          subtext: `${openIncidents.length} Critical correlated incident${
+            openIncidents.length > 1 ? 's' : ''
+          } active`,
+          status: 'critical',
+        },
+        {
+          label: 'Compliance Scope',
+          value: 'SOC 2 & CIS 5.1',
+          subtext: 'Unrestricted perimeter rule flagged',
+          status: 'warning',
+        },
+        {
+          label: 'Board Incident Brief',
+          value: 'Export Ready',
+          subtext: '1-Click Markdown, Jira, and Slack format',
+          status: 'info',
+        },
+      ],
+    };
+  }
+
+  return base;
+}

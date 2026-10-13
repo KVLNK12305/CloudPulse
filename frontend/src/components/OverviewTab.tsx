@@ -3,7 +3,7 @@ import gsap from 'gsap';
 import { ArrowRight, Cloud, DollarSign, ExternalLink, Zap } from 'lucide-react';
 import { formatCurrency } from '../services/api';
 import { EstateOverview, Incident, Persona, TabType } from '../types';
-import { PERSONA_CONFIGS } from '../services/personaConfig';
+import { getPersonaConfig, PERSONA_CONFIGS } from '../services/personaConfig';
 import { ArchPipeline } from './ArchPipeline';
 import { KpiGrid } from './KpiGrid';
 import { SegmentedMeter } from './SegmentedMeter';
@@ -71,7 +71,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 
       {/* Role-Specific Telemetry Spotlight Lens */}
       {(() => {
-        const pCfg = PERSONA_CONFIGS[activePersona];
+        const pCfg = getPersonaConfig(activePersona, {
+          incidents,
+          resourceCount,
+          costTotal: totalCost,
+          costCurrency: currency,
+          topCorrIncident: topCorr,
+        });
         return (
           <div
             className="panel"
