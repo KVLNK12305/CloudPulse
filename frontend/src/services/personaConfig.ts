@@ -45,7 +45,7 @@ export const OPERATOR_TEAM: OperatorProfile[] = [
     name: 'K S V siddardha',
     initials: 'KS',
     role: 'Platform SRE Lead',
-    email: 'siddardha@cloudpulse.io',
+    email: 'siddu28@gmail.com',
     organization: 'Cloud Platform Engineering & SRE',
     primaryPersona: 'platform',
     allowedPersonas: ['platform'],
@@ -67,7 +67,7 @@ export const OPERATOR_TEAM: OperatorProfile[] = [
     name: 'RishinathKurup',
     initials: 'RK',
     role: 'Chief Information Security Officer (CISO)',
-    email: 'rishinath.kurup@cloudpulse.io',
+    email: 'rishinathkurup@gmail.com',
     organization: 'Enterprise Risk & Board Governance',
     primaryPersona: 'executive',
     allowedPersonas: ['executive'],
@@ -374,14 +374,12 @@ export function getPersonaConfig(
     return {
       ...base,
       badge: 'THREAT VECTOR DEFENSE',
-      directive: `Active Attack Surface Defense — Prioritizing ${openIncidents.length} uncontained breach vector${
-        openIncidents.length > 1 ? 's' : ''
-      } on ${topInc.resource?.name || 'workload'}, unauthorized egress, and live ARM isolation gates.`,
+      directive: `Active Attack Surface Defense — Prioritizing ${openIncidents.length} uncontained breach vector${openIncidents.length > 1 ? 's' : ''
+        } on ${topInc.resource?.name || 'workload'}, unauthorized egress, and live ARM isolation gates.`,
       focusHighlights: {
         heroMetricTitle: 'Open Security Incidents',
-        heroMetricReason: `${openIncidents.length} Critical breach vector${
-          openIncidents.length > 1 ? 's' : ''
-        } awaiting remediation gate`,
+        heroMetricReason: `${openIncidents.length} Critical breach vector${openIncidents.length > 1 ? 's' : ''
+          } awaiting remediation gate`,
         quickFilterLabel: 'Critical Threats Only',
         suggestedAction: 'Review Containment Gate',
         actionTab: 'incidents',
@@ -402,9 +400,9 @@ export function getPersonaConfig(
             : topInc.identity?.caller_ip || 'Suspicious Egress',
           subtext: topInc.cost_impact
             ? `+${formatCurr(
-                topInc.cost_impact.deviation_absolute,
-                topInc.cost_impact.currency
-              )} deviation`
+              topInc.cost_impact.deviation_absolute,
+              topInc.cost_impact.currency
+            )} deviation`
             : 'Anomalous outbound transfer',
           status: 'critical',
         },
@@ -562,9 +560,8 @@ export function getPersonaConfig(
     return {
       ...base,
       badge: 'INFRASTRUCTURE & TOPOLOGY',
-      directive: `Infrastructure Resiliency & ARM State Fidelity — Monitoring ${
-        resourceCount || 3
-      } active workloads, subnet routing, and runtime metric collection health.`,
+      directive: `Infrastructure Resiliency & ARM State Fidelity — Monitoring ${resourceCount || 3
+        } active workloads, subnet routing, and runtime metric collection health.`,
       focusHighlights: {
         heroMetricTitle: 'Active Cloud Workloads',
         heroMetricReason:
@@ -680,11 +677,9 @@ export function getPersonaConfig(
     return {
       ...base,
       badge: 'GOVERNANCE & RISK OVERSIGHT',
-      directive: `Enterprise Risk Exposure & Audit Readiness — Tracking ${
-        openIncidents.length
-      } active critical threat vector${
-        openIncidents.length > 1 ? 's' : ''
-      }, SLA compliance 99.4%, and cross-vector executive brief exports.`,
+      directive: `Enterprise Risk Exposure & Audit Readiness — Tracking ${openIncidents.length
+        } active critical threat vector${openIncidents.length > 1 ? 's' : ''
+        }, SLA compliance 99.4%, and cross-vector executive brief exports.`,
       focusHighlights: {
         heroMetricTitle: 'SecOps ↔ FinOps Concurrence',
         heroMetricReason:
@@ -699,9 +694,8 @@ export function getPersonaConfig(
         {
           label: 'Enterprise Risk Score',
           value: 'High Exposure',
-          subtext: `${openIncidents.length} Critical correlated incident${
-            openIncidents.length > 1 ? 's' : ''
-          } active`,
+          subtext: `${openIncidents.length} Critical correlated incident${openIncidents.length > 1 ? 's' : ''
+            } active`,
           status: 'critical',
         },
         {

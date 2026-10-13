@@ -22,7 +22,7 @@ import {
   TabType,
   TenantScope,
 } from '../types';
-import { OPERATOR_TEAM, PERSONA_CONFIGS } from '../services/personaConfig';
+import { OPERATOR_TEAM } from '../services/personaConfig';
 
 interface NavbarProps {
   activeTab: TabType;
@@ -49,6 +49,7 @@ interface NavbarProps {
   onOperatorChange?: (op: OperatorProfile) => void;
   onOpenAuthModal?: () => void;
   onUpdateOperatorName?: (name: string) => void;
+  onNavigateToLanding?: () => void;
 }
 
 const PERSONA_LABELS: Record<
@@ -107,6 +108,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   availableOperators = OPERATOR_TEAM,
   onOperatorChange,
   onOpenAuthModal,
+  onNavigateToLanding,
 }) => {
   const [clock, setClock] = useState<string>('--:--:-- UTC');
   const [tenantDropdownOpen, setTenantDropdownOpen] = useState<boolean>(false);
@@ -170,6 +172,26 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="brand-subtitle">SecOps · FinOps</div>
           </div>
         </div>
+
+        {onNavigateToLanding && (
+          <button
+            onClick={onNavigateToLanding}
+            style={{
+              padding: '3px 8px',
+              fontSize: '0.7rem',
+              fontFamily: 'var(--font-mono)',
+              color: '#63b3ed',
+              backgroundColor: 'rgba(99, 179, 237, 0.08)',
+              border: '1px solid rgba(99, 179, 237, 0.25)',
+              borderRadius: '5px',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+            title="View Platform Landing Page"
+          >
+            <span>Landing Page ↗</span>
+          </button>
+        )}
 
         <div className="topbar-divider" />
 

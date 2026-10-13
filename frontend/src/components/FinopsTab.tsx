@@ -3,15 +3,11 @@ import gsap from 'gsap';
 import {
   AlertTriangle,
   ArrowRight,
-  ArrowUpRight,
-  DollarSign,
-  Gauge,
-  TrendingUp,
   Zap,
 } from 'lucide-react';
 import { formatCurrency } from '../services/api';
 import { CostSummary, Incident, Persona, TabType } from '../types';
-import { getPersonaConfig, PERSONA_CONFIGS } from '../services/personaConfig';
+import { getPersonaConfig } from '../services/personaConfig';
 import { InstrumentGauge } from './InstrumentGauge';
 import { SegmentedMeter } from './SegmentedMeter';
 

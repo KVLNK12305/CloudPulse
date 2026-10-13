@@ -29,6 +29,11 @@ export function isDemoIncident(inc: Incident | null | undefined): boolean {
   return false;
 }
 
+function getAuthHeader(): Record<string, string> {
+  const token = localStorage.getItem('cloudpulse_auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export const api = {
   async fetchHealth(): Promise<HealthStatus> {
     const res = await fetch('/health');
@@ -87,7 +92,10 @@ export const api = {
   async triggerAITriage(incidentId: string, forceRefresh: boolean = true): Promise<Incident> {
     const res = await fetch(`/api/incidents/${incidentId}/ai-triage`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
       body: JSON.stringify({ force_refresh: forceRefresh }),
     });
     if (!res.ok) {
@@ -101,7 +109,10 @@ export const api = {
   async updateIncidentStatus(incidentId: string, status: IncidentStatus): Promise<Incident> {
     const res = await fetch(`/api/incidents/${incidentId}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
       body: JSON.stringify({ status }),
     });
     if (!res.ok) {
@@ -120,7 +131,10 @@ export const api = {
   ): Promise<Incident> {
     const res = await fetch(`/api/incidents/${incidentId}/actions/${actionId}/approval`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
       body: JSON.stringify({
         status,
         notes,
@@ -138,7 +152,10 @@ export const api = {
   async executeRemediation(incidentId: string, actionId: string): Promise<Incident> {
     const res = await fetch(`/api/incidents/${incidentId}/remediation/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeader(),
+      },
       body: JSON.stringify({ action_id: actionId }),
     });
     const data = await res.json();

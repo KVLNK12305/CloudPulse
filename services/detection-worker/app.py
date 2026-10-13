@@ -37,7 +37,7 @@ from services.remediation_service import (
 )
 from services.detection_service import DetectionService
 from services.incident_orchestrator import IncidentOrchestrator
-from services.auth_service import auth_service, OPERATOR_ROSTER
+from services.auth_service import auth_service, OPERATOR_ROSTER, require_auth
 from telemetry.cost_baseline import CostBaselineStore, InMemoryCostBaselineStore
 from telemetry.cost_management import (
     CostManagementClient,
@@ -247,11 +247,21 @@ def create_app(
 
     @app.route("/", methods=["GET"])
     def home():
+        accept = request.headers.get("Accept", "")
+        if "text/html" in accept and not accept.startswith("*/*"):
+            static_dir = os.path.join(os.path.dirname(__file__), "static")
+            return send_from_directory(static_dir, "index.html")
         return jsonify({
             "service": "cloudpulse-detection-worker",
             "message": "CloudPulse detection worker is running",
             "detection_contract": ResourceCreationDetector.DETECTION_ID,
         })
+
+    @app.route("/landing", methods=["GET"])
+    @app.route("/landing/", methods=["GET"])
+    def serve_landing():
+        static_dir = os.path.join(os.path.dirname(__file__), "static")
+        return send_from_directory(static_dir, "index.html")
 
     @app.route("/detect/resource-creation", methods=["POST"])
     def detect_resource_creation():
@@ -1334,6 +1344,7 @@ def create_app(
 
     @app.route("/incidents/<incident_id>", methods=["PATCH"])
     @app.route("/api/incidents/<incident_id>", methods=["PATCH"])
+    @require_auth(allowed_personas=["secops"])
     def patch_incident(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1423,6 +1434,7 @@ def create_app(
         return jsonify(response_data), 200
 
     @app.route("/api/incidents/<incident_id>/actions/<action_id>/approval", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
     def approve_action(incident_id: str, action_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1502,6 +1514,7 @@ def create_app(
             return jsonify({"status": "error", "message": str(e)}), 500
 
     @app.route("/api/incidents/<incident_id>/remediation/execute", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
     def execute_remediation_endpoint(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1651,7 +1664,14 @@ def create_app(
         return jsonify({"success": True, "message": "Logged out successfully."}), 200
 
     @app.route("/api/auth/configure", methods=["POST"])
+    @require_auth()
     def auth_configure_resend():
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else request.args.get("token")
+        user = auth_service.validate_session(token)
+        if not user or not user.get("isSuperAdmin"):
+            return jsonify({"success": False, "error": "SuperAdmin privileges required to configure system credentials."}), 403
+
         data = request.get_json(silent=True) or {}
         key = data.get("resend_api_key", "").strip()
         if key:

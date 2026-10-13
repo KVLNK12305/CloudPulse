@@ -172,7 +172,7 @@ logs() {
 # TEST
 # ------------------------------------------------------------------------------
 test() {
-    echo -e "${BOLD}${CYAN}🧪 Running 250 Test Suite Verification...${NC}"
+    echo -e "${BOLD}${CYAN}🧪 Running 299 Test Suite Verification...${NC}"
     PYTHONPATH=services/detection-worker "$BASE_DIR/services/detection-worker/.venv/bin/pytest" services/detection-worker/tests/ -q
 }
 

@@ -182,7 +182,7 @@ CloudPulse has been proven end-to-end against live Azure infrastructure under su
 * **Cloud Identity & SDK**: Azure SDK for Python (`azure-mgmt-network`, `azure-identity`, `azure-mgmt-resourcegraph`), DefaultAzureCredential
 * **Artificial Intelligence**: Azure OpenAI Service (GPT-4o), Pydantic v2
 * **Infrastructure as Code**: Terraform (`azurerm` provider v3)
-* **Frontend Dashboard**: HTML5, Vanilla JavaScript, Custom CSS Design System
+* **Frontend Dashboard**: React 19, TypeScript, Vite, Custom Design System
 
 ---
 
@@ -233,15 +233,15 @@ CloudPulse includes a production-conscious, idempotent Azure compute lifecycle s
 The test suite covers detection algorithms, correlation logic, API contracts, remediation state machines, and Azure lifecycle automation:
 
 ```bash
-# Run application and detection test suite (276 tests)
+# Run application and detection test suite (299 tests)
 PYTHONPATH=services/detection-worker services/detection-worker/.venv/bin/pytest services/detection-worker/tests/ -v
 
-# Run Azure lifecycle unit test suite (16 tests, mocked Azure CLI)
+# Run Azure lifecycle unit test suite (23 tests, mocked Azure CLI)
 ./scripts/test-lifecycle.sh
 ```
 
-* **Application Test Results**: **276 passed (100% passing)**
-* **Lifecycle Test Results**: **16 passed (100% passing)**
+* **Application Test Results**: **299 passed (100% passing)**
+* **Lifecycle Test Results**: **23 passed (100% passing)**
 * **Terraform State**: Untouched
 * **Azure Infrastructure**: Preserved and undamaged
 

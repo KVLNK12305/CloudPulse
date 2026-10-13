@@ -1,14 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
 import {
-  AlertTriangle,
-  ArrowRight,
   Bot,
   Check,
-  ChevronDown,
   Clock,
-  ExternalLink,
-  Flame,
   Layers,
   RefreshCw,
   Search,
@@ -16,7 +11,6 @@ import {
   Shield,
   ShieldAlert,
   Sparkles,
-  User,
   Zap,
 } from 'lucide-react';
 import { api, formatCurrency, isDemoIncident } from '../services/api';
@@ -26,9 +20,8 @@ import {
   IncidentStatus,
   OperatorProfile,
   Persona,
-  Severity,
 } from '../types';
-import { getPersonaConfig, PERSONA_CONFIGS } from '../services/personaConfig';
+import { getPersonaConfig } from '../services/personaConfig';
 import { ActionModal } from './ActionModal';
 import { ExportBriefModal } from './ExportBriefModal';
 

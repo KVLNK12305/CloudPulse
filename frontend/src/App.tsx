@@ -1,15 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  Compass,
-  ExternalLink,
-  Info,
-  Shield,
-  Sparkles,
-  Users,
-  X,
-  Zap,
-} from 'lucide-react';
-import { ActionModal } from './components/ActionModal';
+import { Sparkles, X } from 'lucide-react';
 import { AlertsBanner } from './components/AlertsBanner';
 import { AuthModal } from './components/AuthModal';
 import { ConnectTenantModal } from './components/ConnectTenantModal';
@@ -22,6 +12,7 @@ import { PersonaFocusBar } from './components/PersonaFocusBar';
 import { ResourceDrawer } from './components/ResourceDrawer';
 import { ResourcesTab } from './components/ResourcesTab';
 import { ToastContainer } from './components/ToastContainer';
+import { LandingPage } from './components/landing/LandingPage';
 import { OPERATOR_TEAM, PERSONA_CONFIGS } from './services/personaConfig';
 import { api } from './services/api';
 import {
@@ -89,6 +80,44 @@ export const App: React.FC = () => {
 
   const [availableOperators] = useState<OperatorProfile[]>(OPERATOR_TEAM);
   const [activeOperator, setActiveOperator] = useState<OperatorProfile>(OPERATOR_TEAM[0]);
+  // Navigation view mode: 'landing' (pitch-ready landing page) vs 'console' (live dashboard)
+  const [viewMode, setViewMode] = useState<'landing' | 'console'>(() => {
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      if (path.includes('/dashboard') && !hash.includes('landing')) {
+        return 'console';
+      }
+    }
+    return 'landing';
+  });
+
+  const handleLaunchConsole = useCallback(() => {
+    setViewMode('console');
+    if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+      window.history.pushState(null, '', '/dashboard');
+    }
+  }, []);
+
+  const handleNavigateToLanding = useCallback(() => {
+    setViewMode('landing');
+    if (typeof window !== 'undefined' && window.history && window.history.pushState) {
+      window.history.pushState(null, '', '/#landing');
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (window.location.pathname.includes('/dashboard')) {
+        setViewMode('console');
+      } else {
+        setViewMode('landing');
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [cisoExportBriefOpen, setCisoExportBriefOpen] = useState<boolean>(false);
 
@@ -289,6 +318,38 @@ export const App: React.FC = () => {
 
   const openIncidentCount = incidents.filter(i => i.status === 'OPEN').length;
 
+  if (viewMode === 'landing') {
+    return (
+      <>
+        <LandingPage
+          onLaunchConsole={handleLaunchConsole}
+          onOpenAuth={() => setAuthModalOpen(true)}
+          isAuthenticated={Boolean(activeOperator?.email)}
+          operatorName={activeOperator?.name}
+        />
+
+        {/* OTP Authentication Modal */}
+        <AuthModal
+          isOpen={authModalOpen}
+          onClose={() => setAuthModalOpen(false)}
+          onAuthenticated={user => {
+            setActiveOperator(user);
+            setActivePersona(user.primaryPersona);
+            showToast(
+              'success',
+              `Authenticated: ${user.name}`,
+              `Signed in as ${user.role}. ${user.isSuperAdmin ? 'Full Access Super-Admin privileges unlocked.' : ''}`
+            );
+          }}
+          activeOperator={activeOperator}
+        />
+
+        {/* Toast Notifications */}
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      </>
+    );
+  }
+
   return (
     <>
       <Navbar
@@ -322,6 +383,7 @@ export const App: React.FC = () => {
         availableOperators={availableOperators}
         onOperatorChange={handleOperatorChange}
         onOpenAuthModal={() => setAuthModalOpen(true)}
+        onNavigateToLanding={handleNavigateToLanding}
       />
 
       <main className="app-container">
