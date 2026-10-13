@@ -34,6 +34,7 @@ from services.remediation_service import (
     RemediationUnapprovedError,
     RemediationPreconditionError,
     RemediationVerificationError,
+    RemediationSelfApprovalBlockedError,
 )
 from services.detection_service import DetectionService
 from services.incident_orchestrator import IncidentOrchestrator
@@ -192,6 +193,22 @@ def create_app(
         # Reflect database disconnection in overall status if degraded from failed Postgres connection
         overall_status = "degraded" if getattr(app, "db_degraded", False) else "healthy"
 
+        # TEL-BLIND-01: Report 'blind' status when telemetry feeds are unconfigured or absent
+        telemetry_status = {
+            "log_analytics": "connected" if telemetry_client else "unconfigured",
+            "resource_graph": "connected" if graph_client else "unconfigured",
+            "cost_management": "connected" if cost_telemetry_client else "unconfigured",
+            "monitor_metrics": "connected" if monitor_metrics else "unconfigured",
+        }
+        unconfigured_feeds = [k for k, v in telemetry_status.items() if v == "unconfigured"]
+        all_telemetry_blind = all(v == "unconfigured" for v in telemetry_status.values())
+        any_telemetry_blind = any(v == "unconfigured" for v in telemetry_status.values())
+
+        if all_telemetry_blind:
+            overall_status = "blind"
+        elif any_telemetry_blind and overall_status == "healthy":
+            overall_status = "degraded"
+
         actual_ai_client = ai_triage_service._client
         ai_cfg = actual_ai_client.get_configuration_status() if hasattr(actual_ai_client, "get_configuration_status") else {}
 
@@ -207,6 +224,19 @@ def create_app(
                 CostAnomalyDetector.DETECTION_ID,
             ],
             "storage": "postgres" if is_postgres else "in_memory",
+            "telemetry": {
+                "feeds": telemetry_status,
+                "unconfigured_feeds": unconfigured_feeds,
+                "blindness_warning": (
+                    "All telemetry feeds are unconfigured. Detection coverage is 0%."
+                    if all_telemetry_blind
+                    else (
+                        f"Telemetry feeds {unconfigured_feeds} are unconfigured. Detection coverage is degraded."
+                        if any_telemetry_blind
+                        else None
+                    )
+                ),
+            },
             "database": {
                 "connected": is_postgres,
                 "readiness": "ready" if is_postgres else ("unhealthy" if getattr(app, "db_degraded", False) else "in_memory"),
@@ -1320,15 +1350,23 @@ def create_app(
     # --- Incident APIs ---
     @app.route("/incidents", methods=["GET"])
     @app.route("/api/incidents", methods=["GET"])
+    @require_auth(allowed_personas=["secops", "executive", "platform", "finops"])
     def get_incidents():
         limit = int(request.args.get("limit", 50))
         severity_filter = request.args.get("severity")
         status_filter = request.args.get("status")
+        subscription_filter = request.args.get("subscription_id")
         incidents = repository.list_incidents(limit=limit)
         if severity_filter:
             incidents = [i for i in incidents if i.severity.value.upper() == severity_filter.upper()]
         if status_filter:
             incidents = [i for i in incidents if i.status.value.upper() == status_filter.upper()]
+        # SEC-TENANT-01: Filter by subscription_id if provided
+        if subscription_filter:
+            incidents = [
+                i for i in incidents
+                if (i.resource.id or "").lower().find(f"/subscriptions/{subscription_filter.lower()}") >= 0
+            ]
         return jsonify({
             "count": len(incidents),
             "incidents": [inc.model_dump() for inc in incidents],
@@ -1336,6 +1374,7 @@ def create_app(
 
     @app.route("/incidents/<incident_id>", methods=["GET"])
     @app.route("/api/incidents/<incident_id>", methods=["GET"])
+    @require_auth(allowed_personas=["secops", "executive", "platform", "finops"])
     def get_incident_by_id(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1371,6 +1410,7 @@ def create_app(
         return jsonify(incident.model_dump()), 200
 
     @app.route("/api/incidents/<incident_id>/findings", methods=["GET"])
+    @require_auth(allowed_personas=["secops", "executive", "platform", "finops"])
     def get_incident_findings(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1389,6 +1429,7 @@ def create_app(
         }), 200
 
     @app.route("/api/incidents/<incident_id>/timeline", methods=["GET"])
+    @require_auth(allowed_personas=["secops", "executive", "platform", "finops"])
     def get_incident_timeline(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1401,6 +1442,7 @@ def create_app(
         }), 200
 
     @app.route("/api/incidents/<incident_id>/ai-analysis", methods=["GET"])
+    @require_auth(allowed_personas=["secops", "executive", "platform", "finops"])
     def get_incident_ai_analysis(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1410,6 +1452,7 @@ def create_app(
         return jsonify(incident.ai_analysis), 200
 
     @app.route("/api/incidents/<incident_id>/ai-triage", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
     def trigger_ai_triage(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1566,6 +1609,7 @@ def create_app(
             return jsonify({"status": "error", "message": str(ex)}), 500
 
     @app.route("/api/incidents/<incident_id>/remediation", methods=["GET"])
+    @require_auth(allowed_personas=["secops", "executive", "platform"])
     def get_incident_remediation(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1575,6 +1619,50 @@ def create_app(
             "incident_id": incident_id,
             "actions": {aid: r.model_dump() for aid, r in container.actions.items()},
         }), 200
+
+    # REM-ROLLBACK-01: Rollback remediation endpoint
+    @app.route("/api/incidents/<incident_id>/remediation/rollback", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
+    def rollback_remediation_endpoint(incident_id: str):
+        """Rollback a previously executed remediation action using captured rollback state."""
+        incident = repository.get_incident(incident_id)
+        if not incident:
+            return jsonify({"error": "Incident not found", "incident_id": incident_id}), 404
+
+        data = request.get_json(silent=True) or {}
+        action_id = data.get("action_id")
+
+        if not action_id:
+            container = RemediationContainer.from_incident_remediation(incident.remediation)
+            for aid, rec in container.actions.items():
+                if rec.status == RemediationStatus.VERIFIED and rec.rollback_state:
+                    action_id = aid
+                    break
+
+        if not action_id:
+            return jsonify({
+                "status": "error",
+                "message": "No action_id specified and no action in VERIFIED status with rollback state."
+            }), 400
+
+        try:
+            record = remediation_service.rollback_remediation(
+                incident_id=incident_id,
+                action_id=action_id,
+                operator=data.get("operator", "security-operator"),
+            )
+            refreshed = repository.get_incident(incident_id) or incident
+            return jsonify({
+                "status": "success",
+                "incident_id": incident_id,
+                "rollback": record.model_dump(),
+                "incident": refreshed.model_dump(),
+            }), 200
+        except RemediationError as re:
+            return jsonify({"status": "error", "message": str(re)}), 400
+        except Exception as ex:
+            logger.exception("Error rolling back remediation: %s", str(ex))
+            return jsonify({"status": "error", "message": str(ex)}), 500
 
     @app.route("/api/dashboard/summary", methods=["GET"])
     def get_dashboard_summary():

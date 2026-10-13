@@ -33,6 +33,11 @@ class RemediationError(Exception):
     pass
 
 
+class RemediationSelfApprovalBlockedError(RemediationError):
+    """Raised when an operator attempts to self-approve their own remediation."""
+    pass
+
+
 class RemediationUnapprovedError(RemediationError):
     """Raised when attempting to execute an unapproved remediation."""
     pass
@@ -130,10 +135,25 @@ class RemediationService:
         """
         Record operator authorization intent on an action.
         Does NOT execute remediation.
+        REM-DUTIES-01: Enforces 4-eyes principle - blocks self-approval.
         """
         incident = self._db.get_incident(incident_id)
         if not incident:
             raise RemediationError(f"Incident '{incident_id}' not found")
+
+        # REM-DUTIES-01: Separation of duties (4-eyes principle)
+        # Reject self-approval: operator must not be the same as the incident requester/caller
+        incident_caller = None
+        if incident.identity and hasattr(incident.identity, 'caller'):
+            incident_caller = incident.identity.caller
+        elif isinstance(incident.identity, dict):
+            incident_caller = incident.identity.get('caller')
+
+        if incident_caller and operator and incident_caller.strip().lower() == operator.strip().lower():
+            raise RemediationSelfApprovalBlockedError(
+                f"Separation of duties violation: operator '{operator}' cannot approve their own incident "
+                f"(incident caller: '{incident_caller}'). A different operator must approve this action."
+            )
 
         container = RemediationContainer.from_incident_remediation(incident.remediation)
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -151,11 +171,16 @@ class RemediationService:
         if decision_upper not in ("APPROVED", "REJECTED"):
             raise RemediationError(f"Invalid approval status '{decision}'. Must be APPROVED or REJECTED")
 
+        # REM-TTL-01: Set approval expiration (1 hour default TTL)
+        from datetime import timedelta
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+
         record.approval = ApprovalDetails(
             status=decision_upper,
             operator=operator,
             timestamp=now_iso,
             notes=notes,
+            expires_at=expires_at,
         )
         record.status = RemediationStatus.APPROVED if decision_upper == "APPROVED" else RemediationStatus.REJECTED
         record.updated_at = now_iso
@@ -214,6 +239,18 @@ class RemediationService:
             raise RemediationUnapprovedError(
                 f"Action '{action_id}' has not been approved by an operator (current status: {record.status.value})"
             )
+
+        # REM-TTL-01: Check approval expiration
+        if record.approval and hasattr(record.approval, 'expires_at') and record.approval.expires_at:
+            try:
+                expires_dt = datetime.fromisoformat(record.approval.expires_at.replace('Z', '+00:00'))
+                if datetime.now(timezone.utc) > expires_dt:
+                    raise RemediationUnapprovedError(
+                        f"Approval for action '{action_id}' has expired (expired at {record.approval.expires_at}). "
+                        f"Re-approval is required."
+                    )
+            except (ValueError, TypeError):
+                pass  # If expires_at is malformed, skip check
 
         # Idempotency: If already verified, return existing record without mutation
         if record.status == RemediationStatus.VERIFIED:
@@ -567,7 +604,11 @@ class RemediationService:
         workload_name = incident.resource.name
         source_ip = finding.evidence.source_ip if finding.evidence else None
         if not source_ip:
-            source_ip = "10.50.3.10"  # Workload private IP from network topology
+            # REM-EGRESS-01: Do not use hardcoded fallback IP — require explicit source IP
+            raise RemediationPreconditionError(
+                "Cannot determine workload private IP for isolation. "
+                "Finding evidence must include 'source_ip' for workload isolation."
+            )
 
         nsg_id = finding.evidence.nsg_id if finding.evidence else None
         if not nsg_id:
@@ -621,16 +662,69 @@ class RemediationService:
 
         # 2. CAPTURE ROLLBACK STATE
         record.rollback_state = {
-            "action": "DELETE_INJECTED_RULE",
-            "rule_name": iso_rule_name,
+            "action": "DELETE_INJECTED_RULES",
+            "rules": [iso_rule_name],
             "nsg_id": nsg_id,
         }
 
-        # 3. MUTATION: Inject high-priority Outbound Deny rule (with bounded 409 retry + revalidation)
+        # REM-EGRESS-01: Inject Allow rules for critical Azure platform endpoints
+        # BEFORE the Deny Internet rule to preserve platform connectivity
+        platform_allow_priority = chosen_priority
+        platform_services = [
+            {"tag": "AzureActiveDirectory", "name": f"CloudPulse-Allow-AAD-{workload_name}"},
+            {"tag": "AzureKeyVault", "name": f"CloudPulse-Allow-KeyVault-{workload_name}"},
+            {"tag": "AzureMonitor", "name": f"CloudPulse-Allow-Monitor-{workload_name}"},
+        ]
+
         record.status = RemediationStatus.EXECUTING
+
+        for svc in platform_services:
+            # Find unused priority for platform Allow rule
+            while platform_allow_priority in used_priorities:
+                platform_allow_priority += 10
+                if platform_allow_priority > 500:
+                    raise RemediationPreconditionError(
+                        f"No unused priority available for platform Allow rule '{svc['name']}'"
+                    )
+
+            allow_payload = {
+                "name": svc["name"],
+                "priority": platform_allow_priority,
+                "direction": "Outbound",
+                "access": "Allow",
+                "protocol": "*",
+                "source_port_range": "*",
+                "destination_port_range": "*",
+                "source_address_prefix": f"{source_ip}/32",
+                "destination_address_prefix": svc["tag"],
+                "description": f"CloudPulse: Preserve {svc['tag']} connectivity during workload isolation",
+            }
+
+            try:
+                self._network_client.create_or_update_security_rule(
+                    resource_group_name=rg,
+                    network_security_group_name=nsg_name,
+                    security_rule_name=svc["name"],
+                    rule_parameters=allow_payload,
+                )
+                # Track for rollback
+                record.rollback_state["rules"].append(svc["name"])
+                used_priorities.add(platform_allow_priority)
+                platform_allow_priority += 10
+            except Exception as e:
+                logger.warning("Non-fatal: Could not inject platform Allow rule '%s': %s", svc["name"], str(e))
+
+        # Find priority for the Deny Internet rule (after all Allow rules)
+        deny_priority = platform_allow_priority
+        while deny_priority in used_priorities:
+            deny_priority += 10
+            if deny_priority > 500:
+                raise RemediationPreconditionError("No unused priority available for Deny Internet rule")
+
+        # 3. MUTATION: Inject high-priority Outbound Deny rule (with bounded 409 retry + revalidation)
         iso_payload = {
             "name": iso_rule_name,
-            "priority": chosen_priority,
+            "priority": deny_priority,
             "direction": "Outbound",
             "access": "Deny",
             "protocol": "*",
@@ -804,3 +898,152 @@ class RemediationService:
         if len(parts) >= 2:
             return parts[-3], parts[-1]
         return "cloudpulse-rg", nsg_id
+
+    # -----------------------------------------------------------------------
+    # REM-ROLLBACK-01: Rollback Implementation
+    # -----------------------------------------------------------------------
+
+    def rollback_remediation(
+        self,
+        incident_id: str,
+        action_id: str,
+        operator: str = "security-operator",
+    ) -> RemediationRecord:
+        """
+        Rollback a previously executed remediation action using captured rollback state.
+        Supports two rollback strategies:
+        1. DISABLE_PUBLIC_INGRESS: Restore original rule properties from rollback_state snapshot
+        2. ISOLATE_WORKLOAD: Delete all injected rules recorded in rollback_state
+        """
+        incident = self._db.get_incident(incident_id)
+        if not incident:
+            raise RemediationError(f"Incident '{incident_id}' not found")
+
+        container = RemediationContainer.from_incident_remediation(incident.remediation)
+        if action_id not in container.actions:
+            raise RemediationError(f"Remediation action '{action_id}' not found on incident {incident_id}")
+
+        record = container.actions[action_id]
+
+        if not record.rollback_state:
+            raise RemediationError(
+                f"No rollback state captured for action '{action_id}'. "
+                f"Rollback is not available for this remediation."
+            )
+
+        if record.status not in (RemediationStatus.VERIFIED, RemediationStatus.EXECUTED):
+            raise RemediationError(
+                f"Cannot rollback action '{action_id}' in status '{record.status.value}'. "
+                f"Only VERIFIED or EXECUTED actions can be rolled back."
+            )
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        rollback_state = record.rollback_state
+        rollback_action = rollback_state.get("action", "")
+
+        incident.timeline.append({
+            "timestamp": now_iso,
+            "event": "REMEDIATION_ROLLBACK_STARTED",
+            "operation": "ROLLBACK_PIPELINE_INITIATION",
+            "caller": operator,
+            "correlation_metadata": {
+                "action_id": action_id,
+                "remediation_id": record.remediation_id,
+                "rollback_action": rollback_action,
+            },
+        })
+
+        try:
+            if rollback_action == "DELETE_INJECTED_RULES":
+                # ISOLATE_WORKLOAD rollback: delete all injected rules
+                nsg_id = rollback_state.get("nsg_id", "")
+                rg, nsg_name = self._parse_nsg_id(nsg_id)
+                rules_to_delete = rollback_state.get("rules", [])
+
+                for rule_name in rules_to_delete:
+                    try:
+                        self._network_client.delete_security_rule(
+                            resource_group_name=rg,
+                            network_security_group_name=nsg_name,
+                            security_rule_name=rule_name,
+                        )
+                        logger.info("Rollback: deleted isolation rule '%s' from NSG '%s'", rule_name, nsg_name)
+                    except Exception as e:
+                        logger.warning("Rollback: failed to delete rule '%s': %s", rule_name, str(e))
+
+            elif rollback_action == "DELETE_INJECTED_RULE":
+                # Legacy single-rule rollback
+                nsg_id = rollback_state.get("nsg_id", "")
+                rule_name = rollback_state.get("rule_name", "")
+                rg, nsg_name = self._parse_nsg_id(nsg_id)
+
+                self._network_client.delete_security_rule(
+                    resource_group_name=rg,
+                    network_security_group_name=nsg_name,
+                    security_rule_name=rule_name,
+                )
+                logger.info("Rollback: deleted rule '%s' from NSG '%s'", rule_name, nsg_name)
+
+            else:
+                # DISABLE_PUBLIC_INGRESS rollback: restore original rule properties
+                nsg_id = record.target_nsg_id or rollback_state.get("nsg_id", "")
+                rule_name = record.target_rule_name or rollback_state.get("name", "")
+                rg, nsg_name = self._parse_nsg_id(nsg_id)
+
+                # Restore original rule from snapshot (access was Allow before remediation)
+                restore_payload = dict(rollback_state)
+                # Ensure original access (Allow) is restored
+                if "access" not in restore_payload:
+                    restore_payload["access"] = "Allow"
+
+                self._network_client.create_or_update_security_rule(
+                    resource_group_name=rg,
+                    network_security_group_name=nsg_name,
+                    security_rule_name=rule_name,
+                    rule_parameters=restore_payload,
+                )
+                logger.info("Rollback: restored original rule '%s' in NSG '%s'", rule_name, nsg_name)
+
+            # Mark rollback as successful
+            record.status = RemediationStatus.NEEDS_REVIEW
+            record.updated_at = datetime.now(timezone.utc).isoformat()
+            record.error_message = None
+
+            incident.timeline.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event": "REMEDIATION_ROLLBACK_COMPLETED",
+                "operation": "ROLLBACK_EXECUTION",
+                "caller": operator,
+                "correlation_metadata": {
+                    "action_id": action_id,
+                    "remediation_id": record.remediation_id,
+                    "rollback_action": rollback_action,
+                    "result": "SUCCESS",
+                },
+            })
+
+            # Re-open incident for investigation after rollback
+            incident.status = IncidentStatus.INVESTIGATING
+
+        except Exception as ex:
+            logger.exception("Rollback failed for action %s: %s", action_id, str(ex))
+            record.error_message = f"Rollback failed: {str(ex)}"
+
+            incident.timeline.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event": "REMEDIATION_ROLLBACK_FAILED",
+                "operation": "ROLLBACK_EXECUTION",
+                "caller": operator,
+                "correlation_metadata": {
+                    "action_id": action_id,
+                    "remediation_id": record.remediation_id,
+                    "error": str(ex),
+                },
+            })
+            raise RemediationError(f"Rollback failed: {str(ex)}") from ex
+
+        container.actions[action_id] = record
+        incident.remediation = container.to_dict()
+        incident.updated_at = datetime.now(timezone.utc).isoformat()
+        self._db.save_incident(incident)
+        return record

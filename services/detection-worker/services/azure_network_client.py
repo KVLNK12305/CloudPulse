@@ -52,8 +52,23 @@ class AzureNetworkClient:
         if credential is not None:
             self._credential = credential
         else:
+            # SEC-CRED-01: Pin credential chain in production to prevent fallback
+            # to developer CLI credentials or environment variable secrets
             if config.AZURE_CLIENT_ID:
-                self._credential = DefaultAzureCredential(managed_identity_client_id=config.AZURE_CLIENT_ID)
+                self._credential = DefaultAzureCredential(
+                    managed_identity_client_id=config.AZURE_CLIENT_ID,
+                    exclude_cli_credential=True,
+                    exclude_environment_credential=True,
+                    exclude_powershell_credential=True,
+                    exclude_visual_studio_code_credential=True,
+                )
+            elif config.ENVIRONMENT in ("production", "staging"):
+                self._credential = DefaultAzureCredential(
+                    exclude_cli_credential=True,
+                    exclude_environment_credential=True,
+                    exclude_powershell_credential=True,
+                    exclude_visual_studio_code_credential=True,
+                )
             else:
                 self._credential = DefaultAzureCredential()
 

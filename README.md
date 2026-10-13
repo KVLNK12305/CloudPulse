@@ -22,7 +22,7 @@ $$\textbf{Deterministic Detection} + \textbf{Cross-Domain Correlation} + \textbf
 1. **Deterministic Detection**: Continuous ingestion of telemetry across activity logs, resource graphs, network flows, and cost baselines without probabilistic heuristics.
 2. **Security ↔ FinOps Correlation**: High-fidelity correlation linking infrastructure exposure and anomalous network activity directly to cost overruns.
 3. **Advisory AI Triage**: Azure OpenAI (GPT-4o) synthesizes executive summaries, risk assessments, and recommended operator actions without possessing execution authority.
-4. **Controlled Remediation**: Deterministic, human-authorized Azure SDK mutations protected by optimistic concurrency (ETags), comprehensive preconditions, post-mutation verification, and full rollback capabilities.
+4. **Controlled Remediation**: Deterministic, human-authorized Azure SDK mutations protected by optimistic concurrency (ETags), comprehensive preconditions, post-mutation verification, and implemented rollback capabilities via captured pre-mutation snapshots.
 
 ---
 
@@ -87,7 +87,8 @@ CloudPulse implements four deterministic detection engines:
    * Identifies unauthorized workload deployments and unmanaged compute resources.
 2. **`UNEXPECTED_PUBLIC_EXPOSURE`**:
    * Analyzes live Azure Resource Graph (ARG) topology graphs spanning Public IPs, NICs, Subnets, and NSGs.
-   * Detects permissive inbound rules (`0.0.0.0/0`, `*`, `Internet`) exposing management ports (SSH: 22, RDP: 3389) or database ports (1433, 3306, 5432).
+   * Evaluates multi-tier NSG pipelines (subnet NSG → NIC NSG) with priority-ordered rule shadowing.
+   * Detects permissive inbound rules (`0.0.0.0/0`, `*`, `Internet`, `AzureCloud`) exposing management ports (SSH: 22, RDP: 3389, SMB: 445, Docker: 2375, Kubelet: 10250) or database ports (1433, 3306, 5432, 6379, 27017).
 3. **`SUSPICIOUS_OUTBOUND_ACTIVITY`**:
    * Ingests network flow telemetry.
    * Flags volumetric egress spikes, known command-and-control (C2) communication patterns, and scanning behavior.
@@ -144,12 +145,14 @@ CloudPulse implements controlled, reversible infrastructure remediation:
   * Injects a deterministic, high-priority outbound deny rule blocking Internet egress while preserving intra-VNet database and management connectivity.
 
 ### Non-Negotiable Safety Invariants
-1. **Human Approval Gate**: Remediation requires prior operator authorization (`APPROVED`). Approval alone causes zero mutations.
-2. **Finding-Derived Targets**: Remediation targets (NSG ID, rule name, port, protocol) are resolved strictly from verified finding evidence in PostgreSQL, never from user inputs or AI text.
-3. **ETag / If-Match Concurrency**: Mutations enforce optimistic concurrency control via HTTP `If-Match` headers. If an administrator alters the rule concurrently, ARM rejects the mutation with HTTP 409/412.
-4. **Precondition Checks**: Live rule properties are re-evaluated prior to mutation. If state has drifted, execution aborts safely with `PRECONDITION_FAILED`.
-5. **Rollback Snapshot**: Complete pre-mutation rule configuration is captured before execution.
-6. **Live ARM Verification**: Effective compliance is confirmed via an independent read-back query to Azure ARM before transitioning the incident to `RESOLVED`.
+1. **Human Approval Gate**: Remediation requires prior operator authorization (`APPROVED`). Approval alone causes zero mutations. Approvals expire after 1 hour (REM-TTL-01).
+2. **Separation of Duties (4-Eyes Principle)**: The approving operator must be a different identity than the incident caller. Self-approval is blocked.
+3. **Finding-Derived Targets**: Remediation targets (NSG ID, rule name, port, protocol) are resolved strictly from verified finding evidence in PostgreSQL, never from user inputs or AI text.
+4. **ETag / If-Match Concurrency**: Mutations enforce optimistic concurrency control via HTTP `If-Match` headers. If an administrator alters the rule concurrently, ARM rejects the mutation with HTTP 409/412.
+5. **Precondition Checks**: Live rule properties are re-evaluated prior to mutation. If state has drifted, execution aborts safely with `PRECONDITION_FAILED`.
+6. **Rollback Implementation**: Complete pre-mutation rule configuration is captured before execution. `DISABLE_PUBLIC_INGRESS` rollbacks restore original rule properties; `ISOLATE_WORKLOAD` rollbacks delete all injected rules. Rollback is exposed via `POST /api/incidents/<id>/remediation/rollback`.
+7. **Live ARM Verification**: Effective compliance is confirmed via an independent read-back query to Azure ARM before transitioning the incident to `RESOLVED`.
+8. **Workload Isolation Safety**: `ISOLATE_WORKLOAD` injects Allow rules for critical Azure platform endpoints (AAD, KeyVault, Azure Monitor) before the Deny Internet rule to prevent operational lockout.
 
 ---
 

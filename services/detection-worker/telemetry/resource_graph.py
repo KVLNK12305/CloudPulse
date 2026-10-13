@@ -80,31 +80,30 @@ Resources
             else:
                 self._client = None
 
+    # Maximum pages to prevent infinite loops on malformed responses
+    MAX_PAGINATION_PAGES = 100
+
     def query(self, kql: str, subscriptions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
-        Execute a KQL query against Azure Resource Graph.
+        Execute a KQL query against Azure Resource Graph with full $skipToken pagination.
+        TEL-SCALE-01: Implements pagination loop to support estates with >1,000 resources.
 
         Args:
             kql: Kusto Query Language query string for Resource Graph.
             subscriptions: Optional list of subscription IDs to scope the query.
 
         Returns:
-            List of resource record dictionaries.
+            List of resource record dictionaries (all pages combined).
         """
         if not kql or not kql.strip():
             raise ResourceGraphQueryError("KQL query cannot be empty")
 
         logger.info("Executing Azure Resource Graph query (subscriptions: %s)", subscriptions)
 
-        # 1. Try SDK if available
+        # 1. Try SDK if available (with pagination)
         if self._client is not None and QueryRequest is not None:
             try:
-                query_request = QueryRequest(
-                    query=kql,
-                    subscriptions=subscriptions,
-                )
-                response = self._client.resources(query_request)
-                return self._parse_arg_data(response.data)
+                return self._query_sdk_paginated(kql, subscriptions)
             except ClientAuthenticationError as auth_err:
                 logger.error("Authentication error accessing Azure Resource Graph: %s", auth_err.message)
                 raise ResourceGraphPermissionError(
@@ -121,11 +120,48 @@ Resources
                     raise ResourceGraphPermissionError(msg) from http_err
                 logger.error("HTTP error during Resource Graph query: %s", http_err.message)
                 raise ResourceGraphQueryError(f"Resource Graph API error ({http_err.status_code}): {http_err.message}") from http_err
+            except (ResourceGraphQueryError, ResourceGraphPermissionError):
+                raise
             except Exception as e:
                 logger.warning("SDK query failed, falling back to REST API: %s", str(e))
 
-        # 2. ARM REST API fallback
+        # 2. ARM REST API fallback (with pagination)
         return self._query_rest(kql, subscriptions)
+
+    def _query_sdk_paginated(self, kql: str, subscriptions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Execute SDK query with $skipToken pagination to retrieve all pages."""
+        all_records: List[Dict[str, Any]] = []
+        skip_token = None
+
+        for page in range(self.MAX_PAGINATION_PAGES):
+            query_request = QueryRequest(
+                query=kql,
+                subscriptions=subscriptions,
+            )
+            # Set skipToken for subsequent pages
+            if skip_token:
+                try:
+                    from azure.mgmt.resourcegraph.models import QueryRequestOptions
+                    query_request.options = QueryRequestOptions(skip_token=skip_token)
+                except (ImportError, TypeError):
+                    # Fallback: set skip_token directly if options model not available
+                    query_request.options = {"$skipToken": skip_token}
+
+            response = self._client.resources(query_request)
+            page_records = self._parse_arg_data(response.data)
+            all_records.extend(page_records)
+
+            # Check for next page
+            skip_token = getattr(response, 'skip_token', None)
+            if not skip_token:
+                break
+
+            logger.debug("Resource Graph pagination: fetched page %d (%d records so far)", page + 1, len(all_records))
+
+        if len(all_records) > 1000:
+            logger.info("Resource Graph pagination: retrieved %d total resources across multiple pages", len(all_records))
+
+        return all_records
 
     def _query_rest(self, kql: str, subscriptions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         try:

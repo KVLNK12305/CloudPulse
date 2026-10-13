@@ -54,6 +54,7 @@ class ApprovalDetails(BaseModel):
     operator: str = Field(default="security-operator")
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     notes: Optional[str] = None
+    expires_at: Optional[str] = Field(default=None, description="ISO timestamp when this approval expires (REM-TTL-01)")
 
 
 class ExecutionDetails(BaseModel):

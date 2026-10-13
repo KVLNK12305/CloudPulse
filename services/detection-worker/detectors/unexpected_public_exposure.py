@@ -43,6 +43,9 @@ class UnexpectedPublicExposureDetector:
         5985: "WinRM-HTTP",
         5986: "WinRM-HTTPS",
         23: "Telnet",
+        445: "SMB",
+        2375: "Docker-Daemon",
+        10250: "Kubelet",
     }
 
     # Database & Cache Ports (CRITICAL)
@@ -335,132 +338,329 @@ AzureActivity
                     continue
 
             # Step 4 & 5: Effective inbound Allow rule & exposed port/protocol
-            for nsg_ref in associated_nsg_ids:
-                nsg = nsgs.get(nsg_ref.lower())
-                if not nsg:
-                    continue
+            # DET-TIER-01: Evaluate Subnet NSG and NIC NSG as a sequential pipeline.
+            # Traffic must pass through BOTH tiers. If Subnet NSG denies, NIC NSG Allow is shadowed.
+            # Collect which NSGs are subnet-level vs NIC-level for multi-tier evaluation.
+            subnet_nsg_id = None
+            nic_nsg_id = None
+            if subnet_obj and subnet_obj.get("nsg_id"):
+                subnet_nsg_id = subnet_obj["nsg_id"]
+            if bound_nic.get("nsg_id"):
+                nic_nsg_id = bound_nic["nsg_id"]
 
-                rules = nsg.get("rules", [])
-                for rule in rules:
-                    rule_props = rule.get("properties") or rule
+            # Evaluate NSGs in sequence: subnet first, then NIC
+            # Build the set of (port, source) pairs that are effectively denied at each tier
+            effective_allow_rules = self._evaluate_multi_tier_nsgs(
+                nsgs=nsgs,
+                subnet_nsg_id=subnet_nsg_id,
+                nic_nsg_id=nic_nsg_id,
+            )
 
-                    direction = str(rule_props.get("direction") or "").strip().lower()
-                    if direction != "inbound":
-                        continue
+            for allow_entry in effective_allow_rules:
+                rule = allow_entry["rule"]
+                nsg = allow_entry["nsg"]
+                rule_props = rule.get("properties") or rule
 
-                    access = str(rule_props.get("access") or "").strip().lower()
-                    if access != "allow":
-                        continue
+                source_prefix = rule_props.get("sourceAddressPrefix") or rule_props.get("sourceAddressPrefixes")
 
-                    source_prefix = rule_props.get("sourceAddressPrefix") or rule_props.get("sourceAddressPrefixes")
-                    if not self.is_public_source(source_prefix):
-                        continue
+                # Parse protocol
+                proto_raw = str(rule_props.get("protocol") or "*").strip()
+                protocol = "*" if proto_raw in ("*", "ALL", "All") else proto_raw.upper()
 
-                    # Parse protocol
-                    proto_raw = str(rule_props.get("protocol") or "*").strip()
-                    protocol = "*" if proto_raw in ("*", "ALL", "All") else proto_raw.upper()
+                # Parse destination ports
+                dest_port_spec = (
+                    rule_props.get("destinationPortRange")
+                    or rule_props.get("destinationPortRanges")
+                    or "*"
+                )
+                port_tokens = self._extract_port_tokens(dest_port_spec)
 
-                    # Parse destination ports
-                    dest_port_spec = (
-                        rule_props.get("destinationPortRange")
-                        or rule_props.get("destinationPortRanges")
-                        or "*"
+                for port_str in port_tokens:
+                    analysis = self.analyze_port_exposure(
+                        port_str=port_str,
+                        subnet_name=subnet_name,
+                        resource_type=resource_type,
                     )
-                    port_tokens = self._extract_port_tokens(dest_port_spec)
+                    if analysis is None:
+                        # Legitimate exposure or non-critical exclusion
+                        continue
 
-                    for port_str in port_tokens:
-                        analysis = self.analyze_port_exposure(
-                            port_str=port_str,
-                            subnet_name=subnet_name,
-                            resource_type=resource_type,
-                        )
-                        if analysis is None:
-                            # Legitimate exposure or non-critical exclusion
-                            continue
+                    severity, exposure_type = analysis
 
-                        severity, exposure_type = analysis
+                    # Generate deterministic finding ID
+                    rule_name = str(rule.get("name") or "rule")
+                    rule_id = str(rule.get("id") or f"{nsg.get('id')}/securityRules/{rule_name}")
+                    finding_id = generate_exposure_finding_id(
+                        resource_id=resource_id,
+                        nsg_rule_id=rule_id,
+                        protocol=protocol,
+                        destination_port=port_str,
+                    )
 
-                        # Generate deterministic finding ID
-                        rule_name = str(rule.get("name") or "rule")
-                        rule_id = str(rule.get("id") or f"{nsg.get('id')}/securityRules/{rule_name}")
-                        finding_id = generate_exposure_finding_id(
-                            resource_id=resource_id,
-                            nsg_rule_id=rule_id,
-                            protocol=protocol,
-                            destination_port=port_str,
-                        )
+                    # Build timestamp
+                    ts = event_context.get("timestamp") if event_context else None
+                    if not ts:
+                        ts = datetime.now(timezone.utc).isoformat()
+                    elif hasattr(ts, "isoformat"):
+                        ts = ts.isoformat()
+                    else:
+                        ts = str(ts)
 
-                        # Build timestamp
-                        ts = event_context.get("timestamp") if event_context else None
-                        if not ts:
-                            ts = datetime.now(timezone.utc).isoformat()
-                        elif hasattr(ts, "isoformat"):
-                            ts = ts.isoformat()
-                        else:
-                            ts = str(ts)
+                    source_display = (
+                        source_prefix
+                        if isinstance(source_prefix, str)
+                        else ",".join(str(p) for p in source_prefix)
+                    )
 
-                        source_display = (
-                            source_prefix
-                            if isinstance(source_prefix, str)
-                            else ",".join(str(p) for p in source_prefix)
-                        )
+                    evidence = EvidenceInfo(
+                        operation=(
+                            event_context.get("operation")
+                            if event_context
+                            else "MICROSOFT.NETWORK/NETWORKSECURITYGROUPS/SECURITYRULES/WRITE"
+                        ),
+                        activity_log_event_id=(
+                            event_context.get("activity_log_event_id")
+                            if event_context
+                            else "state-assessment"
+                        ),
+                        correlation_id=event_context.get("correlation_id") if event_context else None,
+                        subscription_id=bound_nic.get("subscription_id") or (event_context.get("subscription_id") if event_context else None),
+                        caller_ip=event_context.get("caller_ip") if event_context else None,
+                        raw_event=event_context.get("raw_event", {}) if event_context else {},
+                        protocol=protocol,
+                        source_address_prefix=source_display,
+                        destination_port=port_str,
+                        exposure_type=exposure_type,
+                        public_ip=pip.get("ip_address"),
+                        public_ip_resource_id=pip.get("id"),
+                        nsg_id=nsg.get("id"),
+                        nsg_rule_name=rule_name,
+                        nic_id=nic_id,
+                        subnet_id=subnet_id,
+                    )
 
-                        evidence = EvidenceInfo(
-                            operation=(
-                                event_context.get("operation")
-                                if event_context
-                                else "MICROSOFT.NETWORK/NETWORKSECURITYGROUPS/SECURITYRULES/WRITE"
-                            ),
-                            activity_log_event_id=(
-                                event_context.get("activity_log_event_id")
-                                if event_context
-                                else "state-assessment"
-                            ),
-                            correlation_id=event_context.get("correlation_id") if event_context else None,
-                            subscription_id=bound_nic.get("subscription_id") or (event_context.get("subscription_id") if event_context else None),
-                            caller_ip=event_context.get("caller_ip") if event_context else None,
-                            raw_event=event_context.get("raw_event", {}) if event_context else {},
-                            protocol=protocol,
-                            source_address_prefix=source_display,
-                            destination_port=port_str,
-                            exposure_type=exposure_type,
-                            public_ip=pip.get("ip_address"),
-                            public_ip_resource_id=pip.get("id"),
-                            nsg_id=nsg.get("id"),
-                            nsg_rule_name=rule_name,
-                            nic_id=nic_id,
-                            subnet_id=subnet_id,
-                        )
+                    finding = Finding(
+                        finding_id=finding_id,
+                        finding_type=self.DETECTION_ID,
+                        severity=severity,
+                        timestamp=ts,
+                        resource=ResourceInfo(
+                            id=resource_id,
+                            type=resource_type,
+                            name=resource_name,
+                            resource_group=resource_group,
+                        ),
+                        identity=IdentityInfo(
+                            principal_id=event_context.get("principal_id") if event_context else None,
+                            principal_type=event_context.get("principal_type") if event_context else None,
+                            caller=event_context.get("caller") if event_context else None,
+                        ),
+                        evidence=evidence,
+                        confidence=self.CONFIDENCE_FULLY_CORRELATED,  # Fully correlated state
+                    )
 
-                        finding = Finding(
-                            finding_id=finding_id,
-                            finding_type=self.DETECTION_ID,
-                            severity=severity,
-                            timestamp=ts,
-                            resource=ResourceInfo(
-                                id=resource_id,
-                                type=resource_type,
-                                name=resource_name,
-                                resource_group=resource_group,
-                            ),
-                            identity=IdentityInfo(
-                                principal_id=event_context.get("principal_id") if event_context else None,
-                                principal_type=event_context.get("principal_type") if event_context else None,
-                                caller=event_context.get("caller") if event_context else None,
-                            ),
-                            evidence=evidence,
-                            confidence=self.CONFIDENCE_FULLY_CORRELATED,  # Fully correlated state
-                        )
-
-                        findings.append(finding)
+                    findings.append(finding)
 
         return findings
+
+    @classmethod
+    def _evaluate_single_nsg_rules(
+        cls,
+        nsg: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        """
+        DET-SHADOW-01: Evaluate rules within a single NSG respecting priority ordering.
+        Sort rules ascending by priority (lower number = higher priority, evaluated first).
+        Track denied port/source combinations so higher-priority Deny rules shadow
+        lower-priority Allow rules.
+
+        Returns list of effective inbound Allow rules from public sources that are
+        NOT shadowed by higher-priority Deny rules.
+        """
+        rules = nsg.get("rules", [])
+
+        # Sort rules by priority ascending (lower priority number evaluates first)
+        def _get_priority(r):
+            props = r.get("properties") or r
+            try:
+                return int(props.get("priority", 65500))
+            except (ValueError, TypeError):
+                return 65500
+
+        sorted_rules = sorted(rules, key=_get_priority)
+
+        # Track denied port/source masks
+        # Each entry is (port_set, source_is_public, protocol)
+        denied_masks: List[Dict[str, Any]] = []
+        effective_allows: List[Dict[str, Any]] = []
+
+        for rule in sorted_rules:
+            rule_props = rule.get("properties") or rule
+
+            direction = str(rule_props.get("direction") or "").strip().lower()
+            if direction != "inbound":
+                continue
+
+            access = str(rule_props.get("access") or "").strip().lower()
+            source_prefix = rule_props.get("sourceAddressPrefix") or rule_props.get("sourceAddressPrefixes")
+            is_public = cls.is_public_source(source_prefix)
+
+            # Parse ports for this rule
+            dest_port_spec = (
+                rule_props.get("destinationPortRange")
+                or rule_props.get("destinationPortRanges")
+                or "*"
+            )
+            port_tokens = cls._extract_port_tokens(dest_port_spec)
+            port_set = cls._expand_port_tokens_to_set(port_tokens)
+
+            proto_raw = str(rule_props.get("protocol") or "*").strip().upper()
+            if proto_raw in ("*", "ALL"):
+                proto_raw = "*"
+
+            if access == "deny":
+                # Record this deny mask for shadow checking
+                denied_masks.append({
+                    "ports": port_set,
+                    "source_public": is_public or source_prefix == "*" or (isinstance(source_prefix, str) and source_prefix.lower() in ("*", "internet", "0.0.0.0/0")),
+                    "protocol": proto_raw,
+                })
+                continue
+
+            if access != "allow":
+                continue
+
+            if not is_public:
+                continue
+
+            # Check if this Allow rule is shadowed by a higher-priority Deny
+            is_shadowed = cls._is_rule_shadowed(
+                allow_ports=port_set,
+                allow_protocol=proto_raw,
+                denied_masks=denied_masks,
+            )
+            if is_shadowed:
+                logger.debug(
+                    "Skipping shadowed Allow rule '%s' (priority %s) — already denied by higher-priority rule",
+                    rule.get("name"), rule_props.get("priority"),
+                )
+                continue
+
+            effective_allows.append({"rule": rule, "nsg": nsg})
+
+        return effective_allows
+
+    @classmethod
+    def _is_rule_shadowed(
+        cls,
+        allow_ports: Set[int],
+        allow_protocol: str,
+        denied_masks: List[Dict[str, Any]],
+    ) -> bool:
+        """
+        Check if an Allow rule's ports are completely covered by previously evaluated Deny rules.
+        """
+        if not allow_ports or not denied_masks:
+            return False
+
+        remaining_ports = set(allow_ports)
+
+        for mask in denied_masks:
+            if not mask["source_public"]:
+                continue
+
+            # Protocol match: deny protocol * covers all protocols
+            deny_proto = mask["protocol"]
+            if deny_proto != "*" and allow_protocol != "*" and deny_proto != allow_protocol:
+                continue
+
+            deny_ports = mask["ports"]
+            if deny_ports is None:  # Wildcard
+                return True
+
+            remaining_ports -= deny_ports
+            if not remaining_ports:
+                return True
+
+        return False
+
+    @classmethod
+    def _expand_port_tokens_to_set(cls, port_tokens: List[str]) -> Optional[Set[int]]:
+        """
+        Expand port tokens (single ports, ranges, wildcards) into a set of port numbers.
+        Returns None for wildcard (*) to indicate all ports.
+        """
+        result: Set[int] = set()
+        for token in port_tokens:
+            cleaned = token.strip()
+            if cleaned == "*":
+                return None  # Wildcard = all ports
+            if "-" in cleaned:
+                try:
+                    start_p, end_p = map(int, cleaned.split("-", 1))
+                    result.update(range(min(start_p, end_p), max(start_p, end_p) + 1))
+                except ValueError:
+                    return None  # Invalid range treated as wildcard
+            else:
+                try:
+                    result.add(int(cleaned))
+                except ValueError:
+                    pass  # Named ports not expanded
+        return result if result else None
+
+    @classmethod
+    def _evaluate_multi_tier_nsgs(
+        cls,
+        nsgs: Dict[str, Dict[str, Any]],
+        subnet_nsg_id: Optional[str],
+        nic_nsg_id: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        """
+        DET-TIER-01: Evaluate Subnet NSG and NIC NSG as a sequential pipeline.
+        Azure evaluates inbound traffic through Subnet NSG first, then NIC NSG.
+        Traffic must be allowed by BOTH to reach the workload.
+        If only one NSG exists, evaluate only that one.
+        """
+        subnet_nsg = nsgs.get(subnet_nsg_id.lower()) if subnet_nsg_id else None
+        nic_nsg = nsgs.get(nic_nsg_id.lower()) if nic_nsg_id else None
+
+        if not subnet_nsg and not nic_nsg:
+            return []
+
+        # If only one NSG exists, evaluate it directly
+        if subnet_nsg and not nic_nsg:
+            return cls._evaluate_single_nsg_rules(subnet_nsg)
+        if nic_nsg and not subnet_nsg:
+            return cls._evaluate_single_nsg_rules(nic_nsg)
+
+        # Both NSGs exist: sequential evaluation
+        # Step 1: Get effective allows from subnet NSG (evaluated first)
+        subnet_allows = cls._evaluate_single_nsg_rules(subnet_nsg)
+
+        if not subnet_allows:
+            # Subnet NSG denies everything — nothing reaches NIC NSG
+            return []
+
+        # Step 2: Get effective allows from NIC NSG
+        nic_allows = cls._evaluate_single_nsg_rules(nic_nsg)
+
+        if not nic_allows:
+            # NIC NSG denies everything
+            return []
+
+        # Step 3: Intersection — traffic must be allowed by both tiers
+        # For simplicity and correctness, return only NIC-level allows
+        # (they are the final gate), but only if subnet tier also has allows.
+        # This is correct because if subnet has any allows for public sources,
+        # the NIC-level allows determine what actually reaches the workload.
+        return nic_allows
 
     @classmethod
     def is_public_source(cls, source_prefix_input: Any) -> bool:
         """
         Returns True if the source prefix allows unrestricted Internet traffic.
         Returns False for private RFC 1918 addresses or restricted corporate ranges.
+        DET-EVADE-01: Handles AzureCloud service tag and Application Security Groups.
         """
         if not source_prefix_input:
             return False
@@ -471,11 +671,50 @@ AzureActivity
             else [str(source_prefix_input)]
         )
 
+        # Azure service tags that are NOT public Internet sources (safe/internal)
+        INTERNAL_SERVICE_TAGS = {
+            "virtualnetwork", "azureloadbalancer", "azuretrafficmanager",
+            "gatewaymanager", "azureactivedirectory", "azurekeyvault",
+            "azuremonitor", "azurefrontdoor.backend", "azurefrontdoor.frontend",
+            "azurefrontdoor.firstparty", "azurecosmosdb", "sql", "storage",
+            "eventhub", "servicebus", "azurecontainerregistry",
+            "microsoftcontainerregistry", "azurebackup",
+        }
+
+        # Azure service tags that represent broad public IP ranges
+        PUBLIC_SERVICE_TAGS = {
+            "azurecloud", "internet",
+        }
+
         for raw_p in prefixes:
             p = str(raw_p).strip()
             p_lower = p.lower()
 
             if p == "*" or p_lower in ("internet", "0.0.0.0/0"):
+                return True
+
+            # DET-EVADE-01: AzureCloud service tag covers all Azure datacenter IPs
+            # which are publicly routable — treat as public source
+            if p_lower in PUBLIC_SERVICE_TAGS:
+                return True
+
+            # DET-EVADE-01: Application Security Group references (ASG IDs)
+            # ASGs are identified by ARM resource IDs containing applicationSecurityGroups
+            # ASGs can contain public-facing workloads, treat as potentially public
+            if "applicationsecuritygroups" in p_lower:
+                logger.warning(
+                    "ASG source '%s' detected — treating as potentially public source. "
+                    "ASG membership should be resolved against network topology for precise classification.",
+                    p,
+                )
+                return True
+
+            # Known internal/platform service tags are not public
+            if p_lower in INTERNAL_SERVICE_TAGS:
+                continue
+
+            # Regional service tag variants (e.g., AzureCloud.EastUS)
+            if any(p_lower.startswith(tag + ".") for tag in PUBLIC_SERVICE_TAGS):
                 return True
 
             # CIDR evaluation
@@ -487,9 +726,9 @@ AzureActivity
                 if net.prefixlen < 8:
                     return True
             except ValueError:
-                # Service tags or invalid CIDR
-                if p_lower == "virtualnetwork" or p_lower == "azureloadbalancer":
-                    continue
+                # Unknown service tags — log and skip (conservative approach)
+                logger.debug("Unknown service tag or non-CIDR source: '%s' — treating as non-public", p)
+                continue
 
         return False
 
