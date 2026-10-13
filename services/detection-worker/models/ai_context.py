@@ -224,6 +224,83 @@ class AIRecommendedAction(BaseModel):
     risk: ActionRiskLevel = Field(default=ActionRiskLevel.LOW)
     requires_human_approval: bool = Field(default=True, description="Strict human-in-the-loop requirement")
 
+    @field_validator("category", mode="before")
+    @classmethod
+    def normalize_category(cls, v: Any) -> ActionCategory:
+        if isinstance(v, ActionCategory):
+            return v
+        if isinstance(v, str):
+            clean = v.strip().upper()
+            if clean in ActionCategory.__members__:
+                return ActionCategory[clean]
+
+            containment_synonyms = {
+                "MITIGATION", "REMEDIATION", "ISOLATION", "CONTAIN",
+                "QUARANTINE", "BLOCK", "RESTRICT", "ROLLBACK", "REVOKE",
+            }
+            if clean in containment_synonyms:
+                return ActionCategory.CONTAINMENT
+
+            investigation_synonyms = {
+                "INVESTIGATIVE", "INVESTIGATE", "ANALYSIS", "AUDIT",
+                "TRIAGE", "INSPECTION", "VERIFY", "FORENSICS", "EVIDENCE",
+            }
+            if clean in investigation_synonyms:
+                return ActionCategory.INVESTIGATION
+
+            monitoring_synonyms = {
+                "MONITOR", "OBSERVATION", "ALERT", "ALERTING",
+                "LOGGING", "WATCH", "METRICS", "TELEMETRY",
+            }
+            if clean in monitoring_synonyms:
+                return ActionCategory.MONITORING
+
+            optimization_synonyms = {
+                "OPTIMIZE", "COST", "FINOPS", "RIGHTSIZING",
+                "SAVINGS", "EFFICIENCY", "CLEANUP",
+            }
+            if clean in optimization_synonyms:
+                return ActionCategory.OPTIMIZATION
+
+        return ActionCategory.INVESTIGATION
+
+    @field_validator("risk", mode="before")
+    @classmethod
+    def normalize_risk(cls, v: Any) -> ActionRiskLevel:
+        if isinstance(v, ActionRiskLevel):
+            return v
+        if isinstance(v, str):
+            clean = v.strip().upper()
+            if clean in ActionRiskLevel.__members__:
+                return ActionRiskLevel[clean]
+
+            high_synonyms = {"CRITICAL", "SEVERE", "URGENT", "EXTREME"}
+            if clean in high_synonyms:
+                return ActionRiskLevel.HIGH
+
+            med_synonyms = {"MODERATE", "MED", "INTERMEDIATE"}
+            if clean in med_synonyms:
+                return ActionRiskLevel.MEDIUM
+
+            none_synonyms = {"INFORMATIONAL", "INFO", "MINIMAL", "ZERO", "NEGLIGIBLE", "NO RISK"}
+            if clean in none_synonyms:
+                return ActionRiskLevel.NONE
+
+            low_synonyms = {"LOW", "MINOR"}
+            if clean in low_synonyms:
+                return ActionRiskLevel.LOW
+
+        return ActionRiskLevel.LOW
+
+    @field_validator("requires_human_approval", mode="before")
+    @classmethod
+    def normalize_requires_human_approval(cls, v: Any) -> bool:
+        if v is None:
+            return True
+        if isinstance(v, str):
+            return v.strip().lower() not in ("false", "0", "no")
+        return bool(v)
+
 
 class AIKeyEvidenceItem(BaseModel):
     source: str = Field(..., description="Finding type or telemetry source")

@@ -328,6 +328,70 @@ class TestSchemaValidation:
         with pytest.raises(Exception):
             AITriageAnalysis.model_validate(incomplete)
 
+    def test_action_category_mitigation_normalizes_to_containment(self):
+        """Verify LLM returning category 'MITIGATION' normalizes to ActionCategory.CONTAINMENT without validation error."""
+        action = AIRecommendedAction.model_validate({
+            "id": "ACT-01",
+            "title": "Quarantine VM",
+            "description": "Apply NSG rule to block suspicious outbound traffic",
+            "category": "MITIGATION",
+            "risk": "HIGH",
+            "requires_human_approval": True,
+        })
+        assert action.category == ActionCategory.CONTAINMENT
+        assert action.risk == ActionRiskLevel.HIGH
+        assert action.requires_human_approval is True
+
+    def test_action_category_and_risk_resilient_normalizations(self):
+        """Verify various LLM synonyms, casing, and fallbacks parse safely into canonical enums."""
+        test_cases = [
+            ("REMEDIATION", "CRITICAL", ActionCategory.CONTAINMENT, ActionRiskLevel.HIGH),
+            ("isolation", "severe", ActionCategory.CONTAINMENT, ActionRiskLevel.HIGH),
+            ("investigative", "moderate", ActionCategory.INVESTIGATION, ActionRiskLevel.MEDIUM),
+            ("monitoring", "minimal", ActionCategory.MONITORING, ActionRiskLevel.NONE),
+            ("finops", "low", ActionCategory.OPTIMIZATION, ActionRiskLevel.LOW),
+            ("unknown_custom_category", "unknown_risk", ActionCategory.INVESTIGATION, ActionRiskLevel.LOW),
+        ]
+        for cat_input, risk_input, expected_cat, expected_risk in test_cases:
+            action = AIRecommendedAction.model_validate({
+                "id": "ACT-99",
+                "title": "Test Action",
+                "description": "Test guidance",
+                "category": cat_input,
+                "risk": risk_input,
+            })
+            assert action.category == expected_cat
+            assert action.risk == expected_risk
+            assert action.requires_human_approval is True
+
+    def test_ai_triage_analysis_accepts_mitigation_action(self):
+        """Ensure end-to-end AITriageAnalysis parses payload where recommended action has category='MITIGATION'."""
+        payload = {
+            "summary": "Detected anomalous data egress.",
+            "risk_assessment": "Immediate risk.",
+            "likely_scenario": "Data exfiltration via egress.",
+            "security_impact": "High egress to unverified destination.",
+            "financial_impact": "Negligible.",
+            "facts": ["Fact 1"],
+            "inferences": ["Inference 1"],
+            "key_evidence": [{"source": "NSG", "observation": "Port 443 outbound"}],
+            "recommended_actions": [
+                {
+                    "id": "ACT-01",
+                    "title": "Mitigate network exposure",
+                    "description": "Restrict NSG inbound/outbound rules",
+                    "category": "MITIGATION",
+                    "risk": "HIGH",
+                    "requires_human_approval": True,
+                }
+            ],
+            "confidence": 0.92,
+            "limitations": ["No packet capture available"],
+        }
+        analysis = AITriageAnalysis.model_validate(payload)
+        assert analysis.recommended_actions[0].category == ActionCategory.CONTAINMENT
+        assert analysis.recommended_actions[0].risk == ActionRiskLevel.HIGH
+
 
 # =====================================================================
 # 4. Malformed / invalid AI responses
