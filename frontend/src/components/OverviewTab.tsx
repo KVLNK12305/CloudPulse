@@ -2,7 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import { ArrowRight, Cloud, DollarSign, ExternalLink, Zap } from 'lucide-react';
 import { formatCurrency } from '../services/api';
-import { EstateOverview, Incident, TabType } from '../types';
+import { EstateOverview, Incident, Persona, TabType } from '../types';
+import { PERSONA_CONFIGS } from '../services/personaConfig';
 import { ArchPipeline } from './ArchPipeline';
 import { KpiGrid } from './KpiGrid';
 import { SegmentedMeter } from './SegmentedMeter';
@@ -13,6 +14,7 @@ interface OverviewTabProps {
   resourceCount: number;
   onNavigateTab: (tab: TabType) => void;
   onSelectIncident: (id: string) => void;
+  activePersona?: Persona;
 }
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({
@@ -21,6 +23,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   resourceCount,
   onNavigateTab,
   onSelectIncident,
+  activePersona = 'secops',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -58,12 +61,93 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       ref={containerRef}
       style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}
     >
-      {/* 5 KPI Metric Cards */}
+      {/* 5 KPI Metric Cards with Active Role Highlighting */}
       <KpiGrid
         estateOverview={estateOverview}
         incidents={incidents}
         resourceCount={resourceCount}
+        activePersona={activePersona}
       />
+
+      {/* Role-Specific Telemetry Spotlight Lens */}
+      {(() => {
+        const pCfg = PERSONA_CONFIGS[activePersona];
+        return (
+          <div
+            className="panel"
+            style={{
+              borderLeft: `4px solid ${pCfg.color}`,
+              background: `linear-gradient(135deg, ${pCfg.accentBg} 0%, rgba(13, 20, 32, 0.95) 100%)`,
+              marginBottom: '-6px',
+            }}
+          >
+            <div
+              className="panel-header"
+              style={{ padding: '12px 18px', borderBottom: '1px solid var(--border-subtle)' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span
+                  style={{
+                    fontSize: '0.68rem',
+                    fontWeight: 800,
+                    fontFamily: 'var(--font-mono)',
+                    color: pCfg.color,
+                    padding: '2px 8px',
+                    borderRadius: 'var(--radius-xs)',
+                    background: `${pCfg.color}15`,
+                    border: `1px solid ${pCfg.color}40`,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {pCfg.badge}
+                </span>
+                <span style={{ fontWeight: 700, fontSize: '0.86rem', color: 'var(--text-primary)' }}>
+                  {pCfg.label} Operational Perspective
+                </span>
+              </div>
+              <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
+                {pCfg.lensDescription}
+              </span>
+            </div>
+
+            <div
+              style={{
+                padding: '12px 18px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: '14px',
+              }}
+            >
+              <div style={{ fontSize: '0.80rem', color: 'var(--text-secondary)', maxWidth: '680px', lineHeight: 1.5 }}>
+                <strong style={{ color: pCfg.color }}>Active Directive: </strong>
+                {pCfg.directive}
+              </div>
+
+              <button
+                className="btn"
+                onClick={() => onNavigateTab(pCfg.focusHighlights.actionTab)}
+                style={{
+                  background: `${pCfg.color}20`,
+                  color: pCfg.color,
+                  border: `1px solid ${pCfg.color}50`,
+                  fontSize: '0.74rem',
+                  padding: '6px 14px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                <span>Switch to {pCfg.label.split(' ')[0]} Mission Console</span>
+                <ArrowRight size={13} />
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Architectural Telemetry Flow */}
       <ArchPipeline />

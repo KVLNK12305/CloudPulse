@@ -10,7 +10,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { formatCurrency } from '../services/api';
-import { CostSummary, Incident, TabType } from '../types';
+import { CostSummary, Incident, Persona, TabType } from '../types';
+import { PERSONA_CONFIGS } from '../services/personaConfig';
 import { InstrumentGauge } from './InstrumentGauge';
 import { SegmentedMeter } from './SegmentedMeter';
 
@@ -19,6 +20,7 @@ interface FinopsTabProps {
   incidents: Incident[];
   onNavigateTab: (tab: TabType) => void;
   onSelectIncident: (id: string) => void;
+  activePersona?: Persona;
 }
 
 export const FinopsTab: React.FC<FinopsTabProps> = ({
@@ -26,6 +28,7 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
   incidents,
   onNavigateTab,
   onSelectIncident,
+  activePersona = 'finops',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -109,6 +112,86 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
           not reported until closed.
         </div>
       </div>
+
+      {/* Persona Lens Banner in FinOps Console */}
+      {(() => {
+        const pCfg = PERSONA_CONFIGS[activePersona];
+        return (
+          <div
+            className="panel"
+            style={{
+              borderLeft: `4px solid ${pCfg.color}`,
+              background: `linear-gradient(135deg, ${pCfg.accentBg} 0%, rgba(13, 20, 32, 0.95) 100%)`,
+              padding: '12px 18px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span
+                  style={{
+                    fontSize: '0.66rem',
+                    fontWeight: 800,
+                    fontFamily: 'var(--font-mono)',
+                    color: pCfg.color,
+                    padding: '2px 7px',
+                    borderRadius: 'var(--radius-xs)',
+                    background: `${pCfg.color}20`,
+                    border: `1px solid ${pCfg.color}45`,
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  {pCfg.label} LENS
+                </span>
+                <span style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Financial Perspective & Unit Velocity
+                </span>
+              </div>
+
+              {activePersona === 'secops' && (
+                <button
+                  className="btn"
+                  onClick={() => onNavigateTab('incidents')}
+                  style={{
+                    fontSize: '0.68rem',
+                    padding: '3px 8px',
+                    background: `${pCfg.color}20`,
+                    color: pCfg.color,
+                    border: `1px solid ${pCfg.color}50`,
+                  }}
+                >
+                  Inspect Threat Vector
+                </button>
+              )}
+            </div>
+
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              {activePersona === 'finops' && (
+                <>
+                  <strong>Unit Economics Lens: </strong> Workload variance indicates a 13.76x deviation on <code>vm-worker-01</code>. Standard 14-day allocation is $500; actual current burn is $181.20 (36%). Unchecked egress would exhaust subscription quota in 6.2 days.
+                </>
+              )}
+              {activePersona === 'secops' && (
+                <>
+                  <strong>Attacker Financial Footprint: </strong> 100% of the $181.20 anomaly deviation is directly correlated with incident <code>INC-2026-001</code> (unauthorized egress to <code>198.51.100.77:443</code>). Remediating this threat halts 92.7% of total subscription billing!
+                </>
+              )}
+              {activePersona === 'platform' && (
+                <>
+                  <strong>Infrastructure Efficiency: </strong> Egress traffic spikes correspond to 16.5 GB transfer over <code>nic-worker-01</code> ($0.087/GB). Verify Azure NAT gateway / NSG egress rate limiting rules.
+                </>
+              )}
+              {activePersona === 'executive' && (
+                <>
+                  <strong>Spend Governance Lens: </strong> Correlated overage currently accounts for $181.20. Projecting this incident over an annual baseline indicates a potential $52,080 annual runaway waste if left uncontained.
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* FinOps KPI Summary Grid */}
       <div className="kpi-grid">

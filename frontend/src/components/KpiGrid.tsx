@@ -8,18 +8,20 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { formatCurrency } from '../services/api';
-import { EstateOverview, Incident } from '../types';
+import { EstateOverview, Incident, Persona } from '../types';
 
 interface KpiGridProps {
   estateOverview: EstateOverview | null;
   incidents: Incident[];
   resourceCount: number;
+  activePersona?: Persona;
 }
 
 export const KpiGrid: React.FC<KpiGridProps> = ({
   estateOverview,
   incidents,
   resourceCount,
+  activePersona = 'secops',
 }) => {
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -99,13 +101,29 @@ export const KpiGrid: React.FC<KpiGridProps> = ({
   return (
     <div className="kpi-grid" ref={gridRef}>
       {/* 1. Resources */}
-      <div className="kpi-card inventory">
+      <div
+        className={`kpi-card inventory ${activePersona === 'platform' ? 'persona-highlight' : ''}`}
+        style={
+          activePersona === 'platform'
+            ? { border: '1px solid #38bdf8', boxShadow: '0 0 18px rgba(56, 189, 248, 0.25)' }
+            : {}
+        }
+      >
         <div className="kpi-label">
           <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
             <Cloud size={14} color="#38bdf8" />
             <span>Discovered Resources</span>
           </div>
-          <span className="kpi-source-tag">Resource Graph</span>
+          {activePersona === 'platform' ? (
+            <span
+              className="kpi-source-tag"
+              style={{ background: 'rgba(56, 189, 248, 0.2)', color: '#38bdf8', borderColor: 'rgba(56, 189, 248, 0.5)', fontWeight: 800 }}
+            >
+              SRE FOCUS
+            </span>
+          ) : (
+            <span className="kpi-source-tag">Resource Graph</span>
+          )}
         </div>
         <span className="kpi-value" style={{ color: '#38bdf8' }}>
           {totalResources}
@@ -114,13 +132,29 @@ export const KpiGrid: React.FC<KpiGridProps> = ({
       </div>
 
       {/* 2. Cost */}
-      <div className="kpi-card financial">
+      <div
+        className={`kpi-card financial ${activePersona === 'finops' ? 'persona-highlight' : ''}`}
+        style={
+          activePersona === 'finops'
+            ? { border: '1px solid #34d399', boxShadow: '0 0 18px rgba(52, 211, 153, 0.25)' }
+            : {}
+        }
+      >
         <div className="kpi-label">
           <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
             <DollarSign size={14} color="#34d399" />
             <span>Actual Billed Cost</span>
           </div>
-          <span className="kpi-source-tag">Cost Management</span>
+          {activePersona === 'finops' ? (
+            <span
+              className="kpi-source-tag"
+              style={{ background: 'rgba(52, 211, 153, 0.2)', color: '#34d399', borderColor: 'rgba(52, 211, 153, 0.5)', fontWeight: 800 }}
+            >
+              FINOPS FOCUS
+            </span>
+          ) : (
+            <span className="kpi-source-tag">Cost Management</span>
+          )}
         </div>
         <span className="kpi-value" style={{ color: '#34d399' }}>
           {costDisplay}
@@ -129,13 +163,29 @@ export const KpiGrid: React.FC<KpiGridProps> = ({
       </div>
 
       {/* 3. Incidents */}
-      <div className="kpi-card critical">
+      <div
+        className={`kpi-card critical ${activePersona === 'secops' ? 'persona-highlight' : ''}`}
+        style={
+          activePersona === 'secops'
+            ? { border: '1px solid #fc8181', boxShadow: '0 0 18px rgba(252, 129, 129, 0.25)' }
+            : {}
+        }
+      >
         <div className="kpi-label">
           <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
             <ShieldAlert size={14} color="#fc8181" />
             <span>Active Incidents</span>
           </div>
-          <span className="kpi-source-tag">CloudPulse SecOps</span>
+          {activePersona === 'secops' ? (
+            <span
+              className="kpi-source-tag"
+              style={{ background: 'rgba(252, 129, 129, 0.2)', color: '#fc8181', borderColor: 'rgba(252, 129, 129, 0.5)', fontWeight: 800 }}
+            >
+              SECOPS PRIORITY
+            </span>
+          ) : (
+            <span className="kpi-source-tag">CloudPulse SecOps</span>
+          )}
         </div>
         <span className="kpi-value" style={{ color: '#fc8181' }}>
           {totalIncidents}
@@ -146,13 +196,29 @@ export const KpiGrid: React.FC<KpiGridProps> = ({
       </div>
 
       {/* 4. Concurrence */}
-      <div className="kpi-card correlated">
+      <div
+        className={`kpi-card correlated ${activePersona === 'executive' ? 'persona-highlight' : ''}`}
+        style={
+          activePersona === 'executive'
+            ? { border: '1px solid #b794f4', boxShadow: '0 0 18px rgba(183, 148, 244, 0.25)' }
+            : {}
+        }
+      >
         <div className="kpi-label">
           <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
             <Activity size={14} color="#06b6d4" />
             <span>SecOps ↔ FinOps</span>
           </div>
-          <span className="kpi-source-tag">Cross-Correlation</span>
+          {activePersona === 'executive' ? (
+            <span
+              className="kpi-source-tag"
+              style={{ background: 'rgba(183, 148, 244, 0.2)', color: '#b794f4', borderColor: 'rgba(183, 148, 244, 0.5)', fontWeight: 800 }}
+            >
+              CISO FOCUS
+            </span>
+          ) : (
+            <span className="kpi-source-tag">Cross-Correlation</span>
+          )}
         </div>
         <span className="kpi-value" style={{ color: '#06b6d4' }}>
           {correlatedCount}

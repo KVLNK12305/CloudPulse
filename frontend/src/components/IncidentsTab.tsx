@@ -25,8 +25,10 @@ import {
   Incident,
   IncidentStatus,
   OperatorProfile,
+  Persona,
   Severity,
 } from '../types';
+import { PERSONA_CONFIGS } from '../services/personaConfig';
 import { ActionModal } from './ActionModal';
 import { ExportBriefModal } from './ExportBriefModal';
 
@@ -41,6 +43,7 @@ interface IncidentsTabProps {
     message?: string
   ) => void;
   activeOperator?: OperatorProfile;
+  activePersona?: Persona;
 }
 
 export const IncidentsTab: React.FC<IncidentsTabProps> = ({
@@ -50,6 +53,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
   onIncidentUpdated,
   onShowToast,
   activeOperator,
+  activePersona = 'secops',
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sevFilter, setSevFilter] = useState<string>('');
@@ -505,6 +509,104 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Persona-Specific Operational Lens Banner */}
+            {(() => {
+              const pCfg = PERSONA_CONFIGS[activePersona];
+              return (
+                <div
+                  className="panel"
+                  style={{
+                    borderLeft: `4px solid ${pCfg.color}`,
+                    background: `linear-gradient(135deg, ${pCfg.accentBg} 0%, rgba(13, 20, 32, 0.95) 100%)`,
+                    padding: '12px 18px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '6px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span
+                        style={{
+                          fontSize: '0.66rem',
+                          fontWeight: 800,
+                          fontFamily: 'var(--font-mono)',
+                          color: pCfg.color,
+                          padding: '2px 7px',
+                          borderRadius: 'var(--radius-xs)',
+                          background: `${pCfg.color}20`,
+                          border: `1px solid ${pCfg.color}45`,
+                          textTransform: 'uppercase',
+                        }}
+                      >
+                        {pCfg.label} LENS
+                      </span>
+                      <span style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        {pCfg.tagline}
+                      </span>
+                    </div>
+
+                    {activePersona === 'finops' && (
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontFamily: 'var(--font-mono)',
+                          fontWeight: 700,
+                          color: '#38d9a9',
+                          background: 'rgba(56, 217, 169, 0.15)',
+                          padding: '2px 8px',
+                          borderRadius: 'var(--radius-xs)',
+                          border: '1px solid rgba(56, 217, 169, 0.35)',
+                        }}
+                      >
+                        ROI: Avoids ~$4,340 / Mo
+                      </span>
+                    )}
+
+                    {activePersona === 'executive' && (
+                      <button
+                        className="btn"
+                        onClick={() => setExportModalOpen(true)}
+                        style={{
+                          fontSize: '0.68rem',
+                          padding: '3px 8px',
+                          background: `${pCfg.color}20`,
+                          color: pCfg.color,
+                          border: `1px solid ${pCfg.color}50`,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Export CISO Brief
+                      </button>
+                    )}
+                  </div>
+
+                  <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    {activePersona === 'secops' && (
+                      <>
+                        <strong>Containment Priority: </strong> Unchecked outbound exfiltration on port 443 to external destination IP <code>198.51.100.77</code>. Remediation gate is armed to isolate NIC <code>nic-worker-01</code> and revoke internet-facing SSH.
+                      </>
+                    )}
+                    {activePersona === 'finops' && (
+                      <>
+                        <strong>Run-Rate Overrun: </strong> Workload deviation is driving $181.20 in unexpected billing (+1276% over 14-day baseline). Authorizing containment halts the active data egress flow, saving an estimated <strong>$4,340/month</strong> in runaway egress overage.
+                      </>
+                    )}
+                    {activePersona === 'platform' && (
+                      <>
+                        <strong>Infrastructure Blast Radius: </strong> Workload <code>vm-worker-01</code> is attached to subnet <code>snet-worker</code> within <code>vnet-cloudpulse</code>. Remediation strictly drops worker traffic; virtual network core and database tiers remain fully online.
+                      </>
+                    )}
+                    {activePersona === 'executive' && (
+                      <>
+                        <strong>Compliance Exposure: </strong> Inbound SSH rule <code>Allow-SSH-Internet</code> violates CIS Azure Benchmark 5.1 and SOC 2 Type II CC6.1. Audit log attributes remediation directly to active operator <code>{activeOperator?.name || 'Alex Morgan'}</code>.
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Security ↔ FinOps Concurrence Card */}
             {costImpact && (

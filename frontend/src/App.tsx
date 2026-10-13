@@ -12,13 +12,16 @@ import {
 import { ActionModal } from './components/ActionModal';
 import { AlertsBanner } from './components/AlertsBanner';
 import { ConnectTenantModal } from './components/ConnectTenantModal';
+import { ExportBriefModal } from './components/ExportBriefModal';
 import { FinopsTab } from './components/FinopsTab';
 import { IncidentsTab } from './components/IncidentsTab';
 import { Navbar } from './components/Navbar';
 import { OverviewTab } from './components/OverviewTab';
+import { PersonaFocusBar } from './components/PersonaFocusBar';
 import { ResourceDrawer } from './components/ResourceDrawer';
 import { ResourcesTab } from './components/ResourcesTab';
 import { ToastContainer } from './components/ToastContainer';
+import { PERSONA_CONFIGS } from './services/personaConfig';
 import { api } from './services/api';
 import {
   CostSummary,
@@ -83,13 +86,10 @@ export const App: React.FC = () => {
   const [connectTenantModalOpen, setConnectTenantModalOpen] = useState<boolean>(false);
   const [showEvaluatorBanner, setShowEvaluatorBanner] = useState<boolean>(true);
 
-  const [activeOperator, setActiveOperator] = useState<OperatorProfile>({
-    id: 'op-1',
-    name: 'Alex Morgan',
-    role: 'Lead SecOps Engineer',
-    email: 'alex.morgan@cloudpulse.io',
-    organization: 'Acme Cloud Security',
-  });
+  const [activeOperator, setActiveOperator] = useState<OperatorProfile>(
+    PERSONA_CONFIGS.secops.operator
+  );
+  const [cisoExportBriefOpen, setCisoExportBriefOpen] = useState<boolean>(false);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
@@ -102,6 +102,16 @@ export const App: React.FC = () => {
       }, 5000);
     },
     []
+  );
+
+  const handlePersonaChange = useCallback(
+    (newPersona: Persona) => {
+      setActivePersona(newPersona);
+      const cfg = PERSONA_CONFIGS[newPersona];
+      setActiveOperator(cfg.operator);
+      showToast('info', `${cfg.label} Perspective Active`, cfg.directive);
+    },
+    [showToast]
   );
 
   const dismissToast = (id: string) => {
@@ -245,10 +255,7 @@ export const App: React.FC = () => {
         autoRefresh={autoRefresh}
         onToggleAutoRefresh={() => setAutoRefresh(prev => !prev)}
         activePersona={activePersona}
-        onPersonaChange={p => {
-          setActivePersona(p);
-          showToast('info', 'Operational Perspective Updated', `Switched view focus to ${p.toUpperCase()}.`);
-        }}
+        onPersonaChange={handlePersonaChange}
         activeTenant={activeTenant}
         availableTenants={availableTenants}
         onTenantChange={t => {
@@ -260,6 +267,14 @@ export const App: React.FC = () => {
       />
 
       <main className="app-container">
+        {/* Role-Based Point-of-View (POV) Focus Directive Bar */}
+        <PersonaFocusBar
+          activePersona={activePersona}
+          onPersonaChange={handlePersonaChange}
+          onNavigateTab={tab => setActiveTab(tab)}
+          onOpenExportBrief={() => setCisoExportBriefOpen(true)}
+        />
+
         {/* Pitch-Ready Evaluator & Multi-User Welcome Banner */}
         {showEvaluatorBanner && (
           <div
@@ -330,6 +345,7 @@ export const App: React.FC = () => {
               setSelectedIncidentId(id);
               setActiveTab('incidents');
             }}
+            activePersona={activePersona}
           />
         )}
 
@@ -338,6 +354,7 @@ export const App: React.FC = () => {
           <ResourcesTab
             resources={resources}
             onInspectResource={id => setInspectedResourceId(id)}
+            activePersona={activePersona}
           />
         )}
 
@@ -351,6 +368,7 @@ export const App: React.FC = () => {
               setSelectedIncidentId(id);
               setActiveTab('incidents');
             }}
+            activePersona={activePersona}
           />
         )}
 
@@ -363,6 +381,7 @@ export const App: React.FC = () => {
             onIncidentUpdated={handleIncidentUpdated}
             onShowToast={showToast}
             activeOperator={activeOperator}
+            activePersona={activePersona}
           />
         )}
       </main>
@@ -384,6 +403,16 @@ export const App: React.FC = () => {
         onClose={() => setConnectTenantModalOpen(false)}
         onTenantConnected={handleTenantConnected}
       />
+
+      {/* 1-Click Executive CISO Export Brief Modal */}
+      {cisoExportBriefOpen && incidents.length > 0 && (
+        <ExportBriefModal
+          isOpen={cisoExportBriefOpen}
+          incident={incidents[0]}
+          onClose={() => setCisoExportBriefOpen(false)}
+          onShowToast={showToast}
+        />
+      )}
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />

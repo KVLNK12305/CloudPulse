@@ -7,21 +7,26 @@ import {
   Search,
 } from 'lucide-react';
 import { formatCurrency } from '../services/api';
-import { ResourceItem, Severity } from '../types';
+import { Persona, ResourceItem, Severity } from '../types';
+import { PERSONA_CONFIGS } from '../services/personaConfig';
+import { Eye } from 'lucide-react';
 
 interface ResourcesTabProps {
   resources: ResourceItem[];
   onInspectResource: (resourceId: string) => void;
+  activePersona?: Persona;
 }
 
 export const ResourcesTab: React.FC<ResourcesTabProps> = ({
   resources,
   onInspectResource,
+  activePersona = 'secops',
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [sevFilter, setSevFilter] = useState<string>('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const pCfg = PERSONA_CONFIGS[activePersona];
 
   useEffect(() => {
     if (containerRef.current) {
@@ -57,6 +62,36 @@ export const ResourcesTab: React.FC<ResourcesTabProps> = ({
       return true;
     });
   }, [resources, searchQuery, typeFilter, sevFilter]);
+
+  const sortedResources = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      if (activePersona === 'secops') {
+        // High findings and critical severity first
+        if ((b.findings_count || 0) !== (a.findings_count || 0)) {
+          return (b.findings_count || 0) - (a.findings_count || 0);
+        }
+        const sevOrder = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, CLEAN: 0 };
+        const bSev = sevOrder[b.max_severity as keyof typeof sevOrder] || 0;
+        const aSev = sevOrder[a.max_severity as keyof typeof sevOrder] || 0;
+        return bSev - aSev;
+      }
+      if (activePersona === 'finops') {
+        // High billed cost first
+        const costA = a.actual_cost || 0;
+        const costB = b.actual_cost || 0;
+        return costB - costA;
+      }
+      if (activePersona === 'platform') {
+        // Live monitored workloads first
+        if (b.metrics_supported !== a.metrics_supported) {
+          return b.metrics_supported ? 1 : -1;
+        }
+        return (a.name || '').localeCompare(b.name || '');
+      }
+      // Executive: findings density and spend confluence
+      return (b.findings_count || 0) - (a.findings_count || 0);
+    });
+  }, [filtered, activePersona]);
 
   return (
     <div
@@ -126,11 +161,30 @@ export const ResourcesTab: React.FC<ResourcesTabProps> = ({
               <option value="LOW">Low Severity</option>
               <option value="CLEAN">Clean (No Findings)</option>
             </select>
+
+            {/* Active POV Lens Indicator */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                borderRadius: 'var(--radius-xs)',
+                background: `${pCfg.color}15`,
+                border: `1px solid ${pCfg.color}40`,
+                fontSize: '0.70rem',
+                color: pCfg.color,
+                fontWeight: 700,
+              }}
+            >
+              <Eye size={12} />
+              <span>POV LENS: {pCfg.label.toUpperCase()} ({pCfg.focusHighlights.quickFilterLabel})</span>
+            </div>
           </div>
 
           <div className="toolbar-right">
             <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-              Showing {filtered.length} of {resources.length} resources
+              Showing {sortedResources.length} of {resources.length} resources
             </span>
           </div>
         </div>
@@ -151,7 +205,7 @@ export const ResourcesTab: React.FC<ResourcesTabProps> = ({
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {sortedResources.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="empty-state">
                     {resources.length === 0
@@ -160,7 +214,7 @@ export const ResourcesTab: React.FC<ResourcesTabProps> = ({
                   </td>
                 </tr>
               ) : (
-                filtered.map(r => {
+                sortedResources.map(r => {
                   const shortType = (r.type || '').split('/').pop() || r.type;
                   const shortId = (r.id || '').split('/').pop() || '';
                   const sev: Severity = r.max_severity || (r.findings_count > 0 ? 'HIGH' : 'CLEAN');
