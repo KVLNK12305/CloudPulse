@@ -372,6 +372,21 @@ export const api = {
     return res.json();
   },
 
+  async operatorLogin(email: string): Promise<{
+    success: boolean;
+    token?: string;
+    user?: OperatorProfile;
+    error?: string;
+    message?: string;
+  }> {
+    const res = await fetch('/api/auth/operator-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    return res.json();
+  },
+
   async fetchSession(token: string): Promise<{
     authenticated: boolean;
     user: OperatorProfile | null;

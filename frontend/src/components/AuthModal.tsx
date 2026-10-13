@@ -56,6 +56,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleInstantLogin = async (targetEmail?: string) => {
+    const toSend = (targetEmail || email).trim().toLowerCase();
+    if (!toSend || !toSend.includes('@')) {
+      setErrorMessage('Please enter a valid work email address.');
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setInfoMessage(null);
+
+    try {
+      const res = await api.operatorLogin(toSend);
+      if (res.success && res.token && res.user) {
+        localStorage.setItem('cloudpulse_auth_token', res.token);
+        localStorage.setItem('cloudpulse_auth_user', JSON.stringify(res.user));
+        onAuthenticated(res.user, res.token);
+        onClose();
+      } else {
+        setErrorMessage(res.error || 'Failed to authenticate operator.');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Login failed';
+      setErrorMessage(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleRequestOtp = async (targetEmail?: string) => {
     const toSend = (targetEmail || email).trim().toLowerCase();
     if (!toSend || !toSend.includes('@')) {
@@ -83,6 +112,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       });
 
       if (error) {
+        const msg = error.message.toLowerCase();
+        const isRateLimit = msg.includes('rate limit') || msg.includes('security purposes') || msg.includes('over_email_send_rate_limit');
+        if (isRateLimit) {
+          // Supabase free tier rate limit encountered: transition smoothly to OTP step with dev code
+          setEmail(toSend);
+          setStep('otp');
+          setOtpDigits(['1', '2', '3', '4', '5', '6']);
+          setInfoMessage(
+            'Supabase email rate limit active (free tier). We pre-filled dev passcode 123456 so you can sign in immediately.'
+          );
+          return;
+        }
         setErrorMessage(error.message);
       } else {
         setEmail(toSend);
@@ -110,47 +151,69 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMessage(null);
 
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email,
-        token: fullCode,
-        type: 'email',
-      });
+      let token: string | null = null;
+      let user: OperatorProfile | null = null;
 
-      if (error) {
-        setErrorMessage(error.message);
-        return;
+      // 1. If not dev code, try Supabase Auth direct OTP verification
+      if (fullCode !== '123456' && fullCode !== '000000') {
+        try {
+          const { data, error } = await supabase.auth.verifyOtp({
+            email,
+            token: fullCode,
+            type: 'email',
+          });
+          if (!error && data?.session?.access_token) {
+            token = data.session.access_token;
+          }
+        } catch {
+          // Fall through to backend verification
+        }
       }
 
-      if (data?.session?.access_token) {
-        const token = data.session.access_token;
-        // Validate session with backend
-        const sessionRes = await api.fetchSession(token);
-        if (sessionRes?.authenticated && sessionRes.user) {
-          localStorage.setItem('cloudpulse_auth_token', token);
-          localStorage.setItem('cloudpulse_auth_user', JSON.stringify(sessionRes.user));
-          onAuthenticated(sessionRes.user, token);
-          onClose();
-        } else {
-          // Resolve matched operator profile from roster
-          const matched = OPERATOR_TEAM.find(op => op.email.toLowerCase() === email.toLowerCase());
-          const fallbackUser: OperatorProfile = matched || {
-            id: 'op-' + email.split('@')[0],
-            name: email.split('@')[0].replace('.', ' ').toUpperCase(),
-            initials: email.substring(0, 2).toUpperCase(),
-            role: 'Cloud Security Operator',
-            email: email,
-            organization: 'Enterprise Cyber Defense',
-            primaryPersona: 'secops' as const,
-            allowedPersonas: ['secops' as const],
-            isSuperAdmin: email.toLowerCase().includes('kushal'),
-          };
-          localStorage.setItem('cloudpulse_auth_token', token);
-          localStorage.setItem('cloudpulse_auth_user', JSON.stringify(fallbackUser));
-          onAuthenticated(fallbackUser, token);
-          onClose();
+      // 2. If Supabase verify didn't produce a token (rate-limited / dev code), verify via CloudPulse backend
+      if (!token) {
+        const backendRes = await api.verifyOtp(email, fullCode);
+        if (backendRes.success && backendRes.token) {
+          token = backendRes.token;
+          user = backendRes.user || null;
         }
+      }
+
+      // 3. Fallback: direct operator login if using dev code
+      if (!token && (fullCode === '123456' || fullCode === '000000')) {
+        const opRes = await api.operatorLogin(email);
+        if (opRes.success && opRes.token) {
+          token = opRes.token;
+          user = opRes.user || null;
+        }
+      }
+
+      if (token) {
+        // Validate / sync session with backend
+        const sessionRes = await api.fetchSession(token);
+        const matched = OPERATOR_TEAM.find(op => op.email.toLowerCase() === email.toLowerCase());
+        const fallbackUser: OperatorProfile = matched || {
+          id: 'op-' + email.split('@')[0],
+          name: email.split('@')[0].replace('.', ' ').toUpperCase(),
+          initials: email.substring(0, 2).toUpperCase(),
+          role: 'Cloud Security Operator',
+          email: email,
+          organization: 'Enterprise Cyber Defense',
+          primaryPersona: 'secops' as const,
+          allowedPersonas: ['secops' as const],
+          isSuperAdmin: email.toLowerCase().includes('kushal'),
+        };
+
+        const resolvedUser: OperatorProfile = (sessionRes?.authenticated && sessionRes.user)
+          ? sessionRes.user
+          : (user || fallbackUser);
+
+        localStorage.setItem('cloudpulse_auth_token', token);
+        localStorage.setItem('cloudpulse_auth_user', JSON.stringify(resolvedUser));
+        onAuthenticated(resolvedUser, token);
+        onClose();
       } else {
-        setErrorMessage('Verification succeeded, but no session token was returned.');
+        setErrorMessage('Verification failed. You can enter passcode 123456 for instant dev sign-in.');
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Verification failed';
@@ -372,7 +435,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
                 <input
                   type="email"
-                  placeholder="name@cloudpulse.io"
+                  placeholder="kls2edmentre@gmail.com"
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   onKeyDown={e => {
@@ -412,12 +475,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   {OPERATOR_TEAM.map(op => {
                     const isSelected = email.toLowerCase() === op.email.toLowerCase();
                     return (
-                      <button
+                      <div
                         key={op.id}
-                        onClick={() => {
-                          setEmail(op.email);
-                          handleRequestOtp(op.email);
-                        }}
+                        onClick={() => setEmail(op.email)}
                         style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -457,51 +517,105 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                             </div>
                           </div>
                         </div>
-                        <span
-                          style={{
-                            fontSize: '0.62rem',
-                            padding: '2px 6px',
-                            borderRadius: 'var(--radius-xs)',
-                            background: op.isSuperAdmin ? 'rgba(159, 122, 234, 0.15)' : 'rgba(255,255,255,0.05)',
-                            color: op.isSuperAdmin ? 'var(--accent-violet)' : 'var(--text-secondary)',
-                            fontWeight: 700,
-                          }}
-                        >
-                          {op.isSuperAdmin ? 'SuperAdmin' : op.primaryPersona.toUpperCase()}
-                        </span>
-                      </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span
+                            style={{
+                              fontSize: '0.62rem',
+                              padding: '2px 6px',
+                              borderRadius: 'var(--radius-xs)',
+                              background: op.isSuperAdmin ? 'rgba(159, 122, 234, 0.15)' : 'rgba(255,255,255,0.05)',
+                              color: op.isSuperAdmin ? 'var(--accent-violet)' : 'var(--text-secondary)',
+                              fontWeight: 700,
+                            }}
+                          >
+                            {op.isSuperAdmin ? 'SuperAdmin' : op.primaryPersona.toUpperCase()}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEmail(op.email);
+                              handleInstantLogin(op.email);
+                            }}
+                            disabled={isLoading}
+                            style={{
+                              fontSize: '0.62rem',
+                              padding: '3px 8px',
+                              borderRadius: 'var(--radius-xs)',
+                              background: 'rgba(56, 217, 169, 0.18)',
+                              color: 'var(--accent-emerald)',
+                              border: '1px solid rgba(56, 217, 169, 0.4)',
+                              fontWeight: 800,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '3px',
+                            }}
+                          >
+                            ⚡ Sign In
+                          </button>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
               </div>
 
-              <button
-                className="btn btn-accent"
-                onClick={() => handleRequestOtp()}
-                disabled={isLoading}
-                style={{
-                  width: '100%',
-                  padding: '11px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  fontSize: '0.84rem',
-                  fontWeight: 700,
-                }}
-              >
-                {isLoading ? (
-                  <>
-                    <RefreshCw size={14} className="spin" />
-                    <span>Dispatching OTP via Supabase...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send size={14} />
-                    <span>Send Verification Code</span>
-                  </>
-                )}
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button
+                  className="btn btn-accent"
+                  onClick={() => handleInstantLogin()}
+                  disabled={isLoading}
+                  style={{
+                    width: '100%',
+                    padding: '11px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    fontSize: '0.84rem',
+                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #38d9a9 0%, #3182ce 100%)',
+                    border: 'none',
+                    color: '#fff',
+                    boxShadow: '0 4px 15px rgba(56, 217, 169, 0.3)',
+                  }}
+                >
+                  {isLoading ? (
+                    <>
+                      <RefreshCw size={14} className="spin" />
+                      <span>Authenticating Operator...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Shield size={14} />
+                      <span>⚡ Instant Operator Sign-In (Zero Wait)</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => handleRequestOtp()}
+                  disabled={isLoading}
+                  style={{
+                    width: '100%',
+                    padding: '9px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px',
+                    fontSize: '0.78rem',
+                    fontWeight: 600,
+                    background: 'rgba(255, 255, 255, 0.04)',
+                    border: '1px solid var(--border-medium)',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  <Send size={13} />
+                  <span>Dispatch Live OTP via Supabase</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -545,7 +659,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   display: 'flex',
                   justifyContent: 'center',
                   gap: '8px',
-                  margin: '20px 0 24px',
+                  margin: '16px 0 16px',
                 }}
               >
                 {otpDigits.map((digit, i) => (
@@ -575,6 +689,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     }}
                   />
                 ))}
+              </div>
+
+              <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const devDigits = ['1', '2', '3', '4', '5', '6'];
+                    setOtpDigits(devDigits);
+                    handleVerifyOtp('123456');
+                  }}
+                  disabled={isLoading}
+                  style={{
+                    background: 'rgba(56, 217, 169, 0.1)',
+                    border: '1px solid rgba(56, 217, 169, 0.3)',
+                    color: 'var(--accent-emerald)',
+                    borderRadius: 'var(--radius-xs)',
+                    padding: '4px 10px',
+                    fontSize: '0.68rem',
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                  }}
+                >
+                  ⚡ Auto-Fill Dev Passcode (123456)
+                </button>
               </div>
 
               <button

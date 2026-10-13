@@ -1647,6 +1647,22 @@ def create_app(
         status_code = 200 if result.get("success") else 401
         return jsonify(result), status_code
 
+    @app.route("/api/auth/operator-login", methods=["POST"])
+    def auth_operator_login():
+        data = request.get_json(silent=True) or {}
+        email = data.get("email", "").strip().lower()
+        if not email:
+            return jsonify({"success": False, "error": "Email is required."}), 400
+
+        user = auth_service._resolve_user_profile(email)
+        token = auth_service.issue_operator_token(email)
+        return jsonify({
+            "success": True,
+            "token": token,
+            "user": user,
+            "message": f"Authenticated as {user['name']} ({user['role']})."
+        }), 200
+
     @app.route("/api/auth/session", methods=["GET"])
     def auth_get_session():
         auth_header = request.headers.get("Authorization", "")

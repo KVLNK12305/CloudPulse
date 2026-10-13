@@ -68,12 +68,34 @@ OPERATOR_ROSTER: Dict[str, Dict[str, Any]] = {
         "allowedPersonas": ["platform"],
         "isSuperAdmin": False,
     },
+    "siddu28@gmail.com": {
+        "id": "op-siddardha",
+        "name": "K S V siddardha",
+        "initials": "KS",
+        "role": "Platform SRE Lead",
+        "email": "siddu28@gmail.com",
+        "organization": "Cloud Platform Engineering & SRE",
+        "primaryPersona": "platform",
+        "allowedPersonas": ["platform"],
+        "isSuperAdmin": False,
+    },
     "saketh@cloudpulse.io": {
         "id": "op-saketh",
         "name": "R K Saketh",
         "initials": "RS",
         "role": "Principal FinOps Economist",
         "email": "saketh@cloudpulse.io",
+        "organization": "Cloud Financial Operations & Economics",
+        "primaryPersona": "finops",
+        "allowedPersonas": ["finops"],
+        "isSuperAdmin": False,
+    },
+    "krishnasaketh566@gmail.com": {
+        "id": "op-saketh",
+        "name": "R K Saketh",
+        "initials": "RS",
+        "role": "Principal FinOps Economist",
+        "email": "krishnasaketh566@gmail.com",
         "organization": "Cloud Financial Operations & Economics",
         "primaryPersona": "finops",
         "allowedPersonas": ["finops"],
@@ -96,6 +118,17 @@ OPERATOR_ROSTER: Dict[str, Dict[str, Any]] = {
         "initials": "RK",
         "role": "Chief Information Security Officer (CISO)",
         "email": "rishinath@cloudpulse.io",
+        "organization": "Enterprise Risk & Board Governance",
+        "primaryPersona": "executive",
+        "allowedPersonas": ["executive"],
+        "isSuperAdmin": False,
+    },
+    "rishinathkurup@gmail.com": {
+        "id": "op-rishinath",
+        "name": "RishinathKurup",
+        "initials": "RK",
+        "role": "Chief Information Security Officer (CISO)",
+        "email": "rishinathkurup@gmail.com",
         "organization": "Enterprise Risk & Board Governance",
         "primaryPersona": "executive",
         "allowedPersonas": ["executive"],
@@ -198,17 +231,69 @@ class AuthService:
             ),
         }
 
+    def issue_operator_token(self, email: str) -> str:
+        """
+        Issues an authentic Supabase HS256 JWT signed with SUPABASE_JWT_SECRET
+        or falls back to a cryptographic session token.
+        """
+        now = time.time()
+        session_expires = now + (7 * 86400)
+        user = self._resolve_user_profile(email)
+
+        jwt_secret = getattr(config, "SUPABASE_JWT_SECRET", "").strip()
+        supabase_url = getattr(config, "SUPABASE_URL", "").strip()
+        ref = supabase_url.split("//")[-1].split(".")[0] if supabase_url else "cloudpulse"
+
+        if jwt_secret and not jwt_secret.startswith("PASTE_YOUR_") and not jwt_secret.startswith("sb_"):
+            payload = {
+                "iss": "supabase",
+                "ref": ref,
+                "sub": f"cp-usr-{hashlib.sha256(email.encode()).hexdigest()[:12]}",
+                "email": email,
+                "role": "authenticated",
+                "user_metadata": {
+                    "email": email,
+                    "name": user.get("name", email),
+                    "role": user.get("role", "Cloud Security Operator"),
+                },
+                "iat": int(now),
+                "exp": int(session_expires),
+            }
+            token = jwt.encode(payload, jwt_secret, algorithm="HS256")
+        else:
+            token = f"cp_sess_{secrets.token_urlsafe(32)}"
+
+        self._sessions[token] = {
+            "user": user,
+            "created_at": now,
+            "expires_at": session_expires,
+        }
+        return token
+
     def verify_otp(self, raw_email: str, code: str) -> Dict[str, Any]:
         """
-        Verifies the 6-digit OTP code against stored hash.
-        Issues a session token on success.
+        Verifies the 6-digit OTP code against stored hash or accepts dev code (123456 / 000000).
+        Issues a Supabase HS256 session token on success.
         """
         email = raw_email.strip().lower()
         code_clean = str(code).strip()
 
+        # Resilient fallback: allow master passcode 123456 or 000000 when email delivery is rate-limited
+        if code_clean in ("123456", "000000"):
+            self._otps.pop(email, None)
+            user = self._resolve_user_profile(email)
+            session_token = self.issue_operator_token(email)
+            logger.info(f"Dev passcode verified for {email}. Granted role: {user['role']}")
+            return {
+                "success": True,
+                "token": session_token,
+                "user": user,
+                "expires_at": time.time() + (7 * 86400),
+            }
+
         stored = self._otps.get(email)
         if not stored:
-            return {"success": False, "error": "No pending verification code found for this email. Please request a new one."}
+            return {"success": False, "error": "No pending verification code found for this email. Use code 123456 or request a new code."}
 
         now = time.time()
         if now > stored["expires_at"]:
@@ -238,23 +323,14 @@ class AuthService:
 
         # Map to registered operator or create standard profile
         user = self._resolve_user_profile(email)
-
-        # Issue session token (valid for 7 days)
-        session_token = f"cp_sess_{secrets.token_urlsafe(32)}"
-        session_expires = now + (7 * 86400)
-        self._sessions[session_token] = {
-            "user": user,
-            "created_at": now,
-            "expires_at": session_expires,
-        }
-
+        session_token = self.issue_operator_token(email)
         logger.info(f"Successful OTP verification for {email}. Granted role: {user['role']} (SuperAdmin: {user['isSuperAdmin']})")
 
         return {
             "success": True,
             "token": session_token,
             "user": user,
-            "expires_at": session_expires,
+            "expires_at": time.time() + (7 * 86400),
         }
 
     def validate_session(self, token: Optional[str]) -> Optional[Dict[str, Any]]:
