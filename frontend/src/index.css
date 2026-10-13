@@ -151,6 +151,34 @@ body::before {
   position: sticky;
   top: 0;
   z-index: 100;
+  gap: 16px;
+}
+
+.topbar-zone {
+  display: flex;
+  align-items: center;
+}
+
+.topbar-zone-left {
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.topbar-zone-center {
+  margin: 0 auto;
+}
+
+.topbar-zone-right {
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.topbar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-medium);
+  opacity: 0.6;
+  margin: 0 2px;
 }
 
 .brand-group {
@@ -186,6 +214,7 @@ body::before {
   font-weight: 800;
   letter-spacing: -0.03em;
   color: var(--text-primary);
+  line-height: 1.2;
 }
 
 .brand-subtitle {
@@ -195,7 +224,6 @@ body::before {
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-
 
 /* ── Navigation Tabs ── */
 
@@ -1379,7 +1407,7 @@ body::before {
 
 
 /* ══════════════════════════════════════════
-   SCOPE SELECTOR & PERSONA SWITCHER
+   SCOPE SELECTOR & OPERATOR PROFILE
    ══════════════════════════════════════════ */
 
 .scope-selector-btn {
@@ -1389,9 +1417,9 @@ body::before {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
-  padding: 5px 10px;
+  padding: 5px 9px;
   color: var(--text-primary);
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   cursor: pointer;
   font-family: inherit;
   transition: all 0.15s var(--ease-out);
@@ -1401,24 +1429,193 @@ body::before {
   border-color: rgba(99, 179, 237, 0.4);
 }
 
-.persona-btn {
+.scope-name {
+  font-weight: 700;
+  max-width: 135px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-env-tag {
+  font-size: 0.60rem;
+  font-family: var(--font-mono);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+/* ── Seed Demo Button ── */
+
+.btn-seed-compact {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: inherit;
+  background: rgba(159, 122, 234, 0.10);
+  color: var(--accent-violet);
+  border: 1px solid rgba(159, 122, 234, 0.25);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.btn-seed-compact:hover:not(:disabled) {
+  background: rgba(159, 122, 234, 0.20);
+  border-color: rgba(159, 122, 234, 0.45);
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(159, 122, 234, 0.25);
+}
+.btn-seed-compact:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Unified Telemetry Stream Capsule ── */
+
+.telemetry-capsule {
+  display: inline-flex;
+  align-items: center;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-full);
-  padding: 4px 10px;
-  font-size: 0.70rem;
+  padding: 2px 3px 2px 8px;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+.telemetry-capsule:hover {
+  border-color: var(--border-medium);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.telemetry-live-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.68rem;
   font-weight: 700;
   font-family: var(--font-mono);
   cursor: pointer;
+  padding: 2px 4px;
+  border-radius: var(--radius-xs);
+  transition: color 0.15s ease;
+  white-space: nowrap;
+}
+.telemetry-live-btn:hover {
+  color: var(--text-primary);
+}
+
+.telemetry-state-text {
+  letter-spacing: 0.04em;
+}
+
+.telemetry-rate-badge {
+  font-size: 0.60rem;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.telemetry-capsule-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--border-subtle);
+}
+
+.telemetry-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
   transition: all 0.15s ease;
 }
-.persona-btn:hover {
+.telemetry-refresh-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+.telemetry-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Unified Operator Identity Pill ── */
+
+.operator-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 3px 8px 3px 4px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+}
+.operator-pill:hover {
   background: rgba(255, 255, 255, 0.06);
   border-color: var(--border-medium);
 }
+
+.operator-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #63b3ed, #9f7aea);
+  color: #ffffff;
+  font-size: 0.60rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.operator-pill-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.operator-name {
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.operator-role-tag {
+  font-size: 0.58rem;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  border: 1px solid;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.operator-dropdown-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ── Dropdowns ── */
 
 .dropdown-menu {
   position: absolute;
@@ -1441,6 +1638,29 @@ body::before {
   font-weight: 800;
   color: var(--text-tertiary);
   padding: 6px 10px 4px;
+}
+
+.dropdown-section-title {
+  font-size: 0.60rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 800;
+  color: var(--text-tertiary);
+  padding: 8px 10px 4px;
+}
+
+.dropdown-info-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+}
+
+.dropdown-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 4px 0;
 }
 
 .dropdown-item {
@@ -1472,37 +1692,37 @@ body::before {
   background: rgba(99, 179, 237, 0.14);
 }
 
-/* ── Operator Pill ── */
+/* ── Monospace UTC Clock ── */
 
-.operator-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  background: rgba(255, 255, 255, 0.03);
+.topbar-clock {
+  font-size: 0.66rem;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  padding: 3px 8px;
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: var(--radius-xs);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-full);
-  padding: 3px 8px 3px 4px;
-  color: var(--text-primary);
-  cursor: pointer;
-  font-family: inherit;
-  transition: all 0.15s ease;
-}
-.operator-pill:hover {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: var(--border-medium);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.operator-avatar {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #63b3ed, #9f7aea);
-  color: #ffffff;
-  font-size: 0.60rem;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+@media (max-width: 1140px) {
+  .topbar-clock {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    padding: 0 14px;
+    gap: 8px;
+  }
+  .brand-subtitle {
+    display: none;
+  }
+  .scope-name {
+    max-width: 90px;
+  }
 }
 
 
