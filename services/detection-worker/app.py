@@ -37,6 +37,7 @@ from services.remediation_service import (
 )
 from services.detection_service import DetectionService
 from services.incident_orchestrator import IncidentOrchestrator
+from services.auth_service import auth_service, OPERATOR_ROSTER
 from telemetry.cost_baseline import CostBaselineStore, InMemoryCostBaselineStore
 from telemetry.cost_management import (
     CostManagementClient,
@@ -1607,6 +1608,62 @@ def create_app(
             "durable": is_postgres,
             "database_degraded": getattr(app, "db_degraded", False),
             "ai_provider_status": ai_cfg,
+        }), 200
+
+    # --- Authentication & OTP Endpoints ---
+    @app.route("/api/auth/otp/request", methods=["POST"])
+    def auth_request_otp():
+        data = request.get_json(silent=True) or {}
+        email = data.get("email", "").strip()
+        if not email:
+            return jsonify({"success": False, "error": "Email is required."}), 400
+
+        result = auth_service.request_otp(email)
+        status_code = 200 if result.get("success") else (429 if "wait" in result.get("error", "").lower() else 400)
+        return jsonify(result), status_code
+
+    @app.route("/api/auth/otp/verify", methods=["POST"])
+    def auth_verify_otp():
+        data = request.get_json(silent=True) or {}
+        email = data.get("email", "").strip()
+        code = data.get("otp", "").strip()
+        if not email or not code:
+            return jsonify({"success": False, "error": "Email and 6-digit verification code are required."}), 400
+
+        result = auth_service.verify_otp(email, code)
+        status_code = 200 if result.get("success") else 401
+        return jsonify(result), status_code
+
+    @app.route("/api/auth/session", methods=["GET"])
+    def auth_get_session():
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else request.args.get("token")
+        user = auth_service.validate_session(token)
+        if not user:
+            return jsonify({"authenticated": False, "user": None}), 401
+        return jsonify({"authenticated": True, "user": user}), 200
+
+    @app.route("/api/auth/logout", methods=["POST"])
+    def auth_logout():
+        auth_header = request.headers.get("Authorization", "")
+        token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else request.args.get("token")
+        auth_service.revoke_session(token)
+        return jsonify({"success": True, "message": "Logged out successfully."}), 200
+
+    @app.route("/api/auth/configure", methods=["POST"])
+    def auth_configure_resend():
+        data = request.get_json(silent=True) or {}
+        key = data.get("resend_api_key", "").strip()
+        if key:
+            auth_service.set_resend_api_key(key)
+            return jsonify({"success": True, "message": "Resend API key configured successfully.", "has_resend_key": True}), 200
+        return jsonify({"success": False, "error": "API key is required."}), 400
+
+    @app.route("/api/auth/status", methods=["GET"])
+    def auth_status():
+        return jsonify({
+            "has_resend_key": auth_service.has_resend_key,
+            "roster": list(OPERATOR_ROSTER.values()),
         }), 200
 
     return app

@@ -7,6 +7,7 @@ import {
   Cloud,
   Database,
   DollarSign,
+  Key,
   Lock,
   Plus,
   RefreshCw,
@@ -46,6 +47,7 @@ interface NavbarProps {
   activeOperator: OperatorProfile;
   availableOperators?: OperatorProfile[];
   onOperatorChange?: (op: OperatorProfile) => void;
+  onOpenAuthModal?: () => void;
   onUpdateOperatorName?: (name: string) => void;
 }
 
@@ -104,6 +106,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   activeOperator,
   availableOperators = OPERATOR_TEAM,
   onOperatorChange,
+  onOpenAuthModal,
 }) => {
   const [clock, setClock] = useState<string>('--:--:-- UTC');
   const [tenantDropdownOpen, setTenantDropdownOpen] = useState<boolean>(false);
@@ -613,6 +616,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span style={{ fontWeight: 700, color: 'var(--accent-sky)', fontSize: '0.74rem' }}>
                   Connect Cloud Tenant…
                 </span>
+              </div>
+              <div
+                className="dropdown-item"
+                onClick={() => {
+                  setUserMenuOpen(false);
+                  onOpenAuthModal?.();
+                }}
+              >
+                <Key size={12} color="var(--accent-sky)" />
+                <span style={{ fontSize: '0.74rem' }}>Operator Login / Verify OTP…</span>
               </div>
               <div
                 className="dropdown-item"

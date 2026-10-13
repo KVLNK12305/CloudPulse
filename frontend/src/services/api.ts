@@ -5,6 +5,7 @@ import {
   HealthStatus,
   Incident,
   IncidentStatus,
+  OperatorProfile,
   ResourceDetail,
   ResourceItem,
 } from '../types';
@@ -319,5 +320,72 @@ export const api = {
         body: JSON.stringify({ force_refresh: true }),
       });
     }
+  },
+
+  // --- Authentication & OTP API ---
+  async requestOtp(email: string): Promise<{
+    success: boolean;
+    message?: string;
+    expires_in_seconds?: number;
+    cooldown_seconds?: number;
+    dev_mode?: boolean;
+    dev_otp?: string;
+    delivery_note?: string;
+    error?: string;
+  }> {
+    const res = await fetch('/api/auth/otp/request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    return res.json();
+  },
+
+  async verifyOtp(email: string, otp: string): Promise<{
+    success: boolean;
+    token?: string;
+    user?: OperatorProfile;
+    error?: string;
+  }> {
+    const res = await fetch('/api/auth/otp/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, otp }),
+    });
+    return res.json();
+  },
+
+  async fetchSession(token: string): Promise<{
+    authenticated: boolean;
+    user: OperatorProfile | null;
+  }> {
+    const res = await fetch('/api/auth/session', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return { authenticated: false, user: null };
+    return res.json();
+  },
+
+  async logout(token?: string): Promise<void> {
+    if (!token) return;
+    await fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  },
+
+  async configureResendKey(key: string): Promise<{ success: boolean; message?: string; error?: string }> {
+    const res = await fetch('/api/auth/configure', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resend_api_key: key }),
+    });
+    return res.json();
+  },
+
+  async fetchAuthStatus(): Promise<{ has_resend_key: boolean; roster: OperatorProfile[] }> {
+    const res = await fetch('/api/auth/status');
+    if (!res.ok) return { has_resend_key: false, roster: [] };
+    return res.json();
   }
 };

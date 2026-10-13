@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { ActionModal } from './components/ActionModal';
 import { AlertsBanner } from './components/AlertsBanner';
+import { AuthModal } from './components/AuthModal';
 import { ConnectTenantModal } from './components/ConnectTenantModal';
 import { ExportBriefModal } from './components/ExportBriefModal';
 import { FinopsTab } from './components/FinopsTab';
@@ -88,6 +89,7 @@ export const App: React.FC = () => {
 
   const [availableOperators] = useState<OperatorProfile[]>(OPERATOR_TEAM);
   const [activeOperator, setActiveOperator] = useState<OperatorProfile>(OPERATOR_TEAM[0]);
+  const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
   const [cisoExportBriefOpen, setCisoExportBriefOpen] = useState<boolean>(false);
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -218,10 +220,26 @@ export const App: React.FC = () => {
     setIsRefreshing(false);
   }, [selectedIncidentId]);
 
-  // Initial load
+  // Initial load & session restoration
   useEffect(() => {
     loadData();
-  }, [loadData]);
+
+    // Check for saved auth session
+    const token = localStorage.getItem('cloudpulse_auth_token');
+    if (token) {
+      api.fetchSession(token).then(res => {
+        if (res.authenticated && res.user) {
+          setActiveOperator(res.user);
+          setActivePersona(res.user.primaryPersona);
+          showToast(
+            'success',
+            `Session Active: ${res.user.name}`,
+            `Operating as ${res.user.role}${res.user.isSuperAdmin ? ' (✦ Full Access)' : ''}`
+          );
+        }
+      }).catch(() => {});
+    }
+  }, [loadData, showToast]);
 
   // Polling loop
   useEffect(() => {
@@ -303,6 +321,7 @@ export const App: React.FC = () => {
         activeOperator={activeOperator}
         availableOperators={availableOperators}
         onOperatorChange={handleOperatorChange}
+        onOpenAuthModal={() => setAuthModalOpen(true)}
       />
 
       <main className="app-container">
@@ -453,6 +472,22 @@ export const App: React.FC = () => {
           onShowToast={showToast}
         />
       )}
+
+      {/* OTP Authentication Modal */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onAuthenticated={(user) => {
+          setActiveOperator(user);
+          setActivePersona(user.primaryPersona);
+          showToast(
+            'success',
+            `Authenticated: ${user.name}`,
+            `Signed in as ${user.role}. ${user.isSuperAdmin ? 'Full Access Super-Admin privileges unlocked.' : ''}`
+          );
+        }}
+        activeOperator={activeOperator}
+      />
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
