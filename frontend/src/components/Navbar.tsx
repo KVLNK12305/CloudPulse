@@ -156,6 +156,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   return (
     <header className="topbar">
+      <div className="topbar-row topbar-row-main">
       {/* ── Zone 1: Brand & Scope (Left) ── */}
       <div className="topbar-zone topbar-zone-left">
         <div
@@ -173,26 +174,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="brand-subtitle">SecOps · FinOps</div>
           </div>
         </div>
-
-        {onNavigateToLanding && (
-          <button
-            onClick={onNavigateToLanding}
-            style={{
-              padding: '3px 8px',
-              fontSize: '0.7rem',
-              fontFamily: 'var(--font-mono)',
-              color: '#63b3ed',
-              backgroundColor: 'rgba(99, 179, 237, 0.08)',
-              border: '1px solid rgba(99, 179, 237, 0.25)',
-              borderRadius: '5px',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-            title="View Platform Landing Page"
-          >
-            <span>Landing Page ↗</span>
-          </button>
-        )}
 
         <div className="topbar-divider" />
 
@@ -265,51 +246,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           )}
         </div>
       </div>
-
-      {/* ── Zone 2: Navigation Tabs (Center) ── */}
-      <nav className="nav-tabs topbar-zone-center" aria-label="Primary Navigation">
-        <button
-          className={`nav-tab ${activeTab === 'overview' ? 'active' : ''}`}
-          onClick={() => onTabChange('overview')}
-        >
-          <Activity size={13} />
-          <span>Overview</span>
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === 'resources' ? 'active' : ''}`}
-          onClick={() => onTabChange('resources')}
-        >
-          <Cloud size={13} />
-          <span>Resources</span>
-          {resourceCount > 0 && (
-            <span className="tab-badge" style={{ background: 'rgba(99, 179, 237, 0.16)', color: '#63b3ed' }}>
-              {resourceCount}
-            </span>
-          )}
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === 'finops' ? 'active' : ''}`}
-          onClick={() => onTabChange('finops')}
-        >
-          <DollarSign size={13} />
-          <span>Cost & FinOps</span>
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === 'incidents' ? 'active' : ''}`}
-          onClick={() => onTabChange('incidents')}
-        >
-          <Shield size={13} />
-          <span>Incidents</span>
-          {openIncidentCount > 0 && (
-            <span className="tab-badge" style={{ background: 'rgba(252, 129, 129, 0.16)', color: '#fc8181' }}>
-              {openIncidentCount}
-            </span>
-          )}
-        </button>
-      </nav>
 
       {/* ── Zone 3: Operations, Telemetry & Operator (Right) ── */}
       <div className="topbar-zone topbar-zone-right">
@@ -633,10 +569,65 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           )}
         </div>
+      </div>
+      </div>
 
-        {/* Minimal UTC Monospace Clock */}
-        <div className="topbar-clock" title="Coordinated Universal Time (UTC)">
-          {clock}
+      <div className="topbar-row topbar-row-tabs">
+      {/* ── Zone 2: Navigation Tabs (Center) ── */}
+      <nav className="nav-tabs" aria-label="Primary Navigation">
+        <button
+          className={`nav-tab ${activeTab === 'overview' ? 'active' : ''}`}
+          onClick={() => onTabChange('overview')}
+        >
+          <Activity size={13} />
+          <span>Overview</span>
+        </button>
+
+        <button
+          className={`nav-tab ${activeTab === 'resources' ? 'active' : ''}`}
+          onClick={() => onTabChange('resources')}
+        >
+          <Cloud size={13} />
+          <span>Resources</span>
+          {resourceCount > 0 && (
+            <span className="tab-badge" style={{ background: 'rgba(99, 179, 237, 0.16)', color: '#63b3ed' }}>
+              {resourceCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          className={`nav-tab ${activeTab === 'finops' ? 'active' : ''}`}
+          onClick={() => onTabChange('finops')}
+        >
+          <DollarSign size={13} />
+          <span>Cost & FinOps</span>
+        </button>
+
+        <button
+          className={`nav-tab ${activeTab === 'incidents' ? 'active' : ''}`}
+          onClick={() => onTabChange('incidents')}
+        >
+          <Shield size={13} />
+          <span>Incidents</span>
+          {openIncidentCount > 0 && (
+            <span className="tab-badge" style={{ background: 'rgba(252, 129, 129, 0.16)', color: '#fc8181' }}>
+              {openIncidentCount}
+            </span>
+          )}
+        </button>
+      </nav>
+
+        <div className="topbar-tabs-meta">
+          {onNavigateToLanding && (
+            <button className="topbar-link" onClick={onNavigateToLanding} title="View Platform Landing Page">
+              Landing page ↗
+            </button>
+          )}
+          {/* Minimal UTC Monospace Clock */}
+          <div className="topbar-clock" title="Coordinated Universal Time (UTC)">
+            {clock}
+          </div>
         </div>
       </div>
     </header>

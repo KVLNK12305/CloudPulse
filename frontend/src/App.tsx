@@ -8,6 +8,7 @@ import { FinopsTab } from './components/FinopsTab';
 import { IncidentsTab } from './components/IncidentsTab';
 import { Navbar } from './components/Navbar';
 import { OverviewTab } from './components/OverviewTab';
+import { PageHeader } from './components/PageHeader';
 import { PersonaFocusBar } from './components/PersonaFocusBar';
 import { ResourceDrawer } from './components/ResourceDrawer';
 import { ResourcesTab } from './components/ResourcesTab';
@@ -28,9 +29,32 @@ import {
   ToastMessage,
 } from './types';
 
+const PAGE_META: Record<TabType, { title: string; live: string; offline: string }> = {
+  overview: {
+    title: 'Overview',
+    live: 'Estate posture across security findings, billed cost and inventory.',
+    offline: 'Security posture from recorded incidents. Inventory and billing require live Azure integration.',
+  },
+  resources: {
+    title: 'Resources',
+    live: 'Inventory from Azure Resource Graph. Select a resource to see runtime metrics, billing and linked findings.',
+    offline: 'Inventory comes from Azure Resource Graph, which is offline while the estate is decommissioned.',
+  },
+  finops: {
+    title: 'Cost & FinOps',
+    live: "Closed daily billing from Azure Cost Management. Today's consumption appears after 24–48h reconciliation.",
+    offline: 'Azure Cost Management is offline, so no billing is queried. Correlated overruns come only from recorded incidents.',
+  },
+  incidents: {
+    title: 'Incidents',
+    live: 'Correlated security and cost incidents. Triage with AI, then approve or reject each recommended action.',
+    offline: 'Correlated security and cost incidents. Triage with AI and record approvals; remediation needs live Azure.',
+  },
+};
+
 const OFFLINE_TENANT: TenantScope = {
   id: 'tenant-offline',
-  name: 'Offline Demo (Azure decommissioned)',
+  name: 'Offline Demo',
   subscriptionId: 'no live subscription',
   environment: 'offline',
   region: '—',
@@ -74,7 +98,21 @@ export const App: React.FC = () => {
   const [connectedTenants, setConnectedTenants] = useState<TenantScope[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
   const [connectTenantModalOpen, setConnectTenantModalOpen] = useState<boolean>(false);
-  const [showEvaluatorBanner, setShowEvaluatorBanner] = useState<boolean>(true);
+  const [showEvaluatorBanner, setShowEvaluatorBanner] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('cloudpulse_notice_dismissed') !== '1';
+    } catch {
+      return true;
+    }
+  });
+  const dismissEvaluatorBanner = () => {
+    setShowEvaluatorBanner(false);
+    try {
+      localStorage.setItem('cloudpulse_notice_dismissed', '1');
+    } catch {
+      // Storage unavailable: dismissal lasts for this session only
+    }
+  };
 
   const [activeOperator, setActiveOperator] = useState<OperatorProfile>(GUEST_OPERATOR);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -399,6 +437,51 @@ export const App: React.FC = () => {
       />
 
       <main className="app-container">
+        <div className="page-stack">
+        {/* Errors first: they are the only thing that needs immediate attention */}
+        <AlertsBanner
+          dbDegradedWarning={dbDegradedWarning}
+          apiErrors={apiErrors}
+          onRetry={loadData}
+        />
+
+        {/* One slim, dismissible platform notice */}
+        {showEvaluatorBanner && (
+          <div className={`notice-slim ${azureEnabled ? 'info' : 'warn'}`}>
+            <Sparkles size={15} color={azureEnabled ? 'var(--accent-sky)' : 'var(--accent-amber)'} style={{ flexShrink: 0 }} />
+            <div className="notice-body">
+              {azureEnabled ? (
+                <>
+                  Inspecting <strong>{activeTenant.name}</strong>. Use the perspective switcher to change lenses.
+                </>
+              ) : (
+                <>
+                  <strong>Offline demo.</strong> The Azure estate is decommissioned, so inventory, billing and metrics are
+                  unavailable and remediation is disabled. Sign in as SecOps and use <strong>Seed Demo</strong> to explore
+                  detection, correlation and AI triage.
+                </>
+              )}
+            </div>
+            {azureEnabled && (
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: '0.7rem', padding: '3px 10px' }}
+                onClick={() => setConnectTenantModalOpen(true)}
+              >
+                + Connect Tenant
+              </button>
+            )}
+            <button className="notice-dismiss" onClick={dismissEvaluatorBanner} title="Dismiss" aria-label="Dismiss notice">
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        <PageHeader
+          title={PAGE_META[activeTab].title}
+          subtitle={azureEnabled ? PAGE_META[activeTab].live : PAGE_META[activeTab].offline}
+        />
+
         {/* Role-Based Point-of-View (POV) Focus Directive Bar */}
         <PersonaFocusBar
           activePersona={activePersona}
@@ -423,69 +506,6 @@ export const App: React.FC = () => {
           }}
         />
 
-        {/* Pitch-Ready Evaluator & Multi-User Welcome Banner */}
-        {showEvaluatorBanner && (
-          <div
-            className="evaluator-banner"
-            style={{
-              background: 'linear-gradient(90deg, rgba(99, 179, 237, 0.08), rgba(159, 122, 234, 0.08))',
-              border: '1px solid rgba(99, 179, 237, 0.25)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '12px 18px',
-              marginBottom: '16px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '16px',
-              flexWrap: 'wrap',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 0', minWidth: 0 }}>
-              <Sparkles size={18} color="var(--accent-sky)" style={{ flexShrink: 0 }} />
-              <div style={{ fontSize: '0.80rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
-                <strong>CloudPulse Autonomous SecOps & FinOps Platform:</strong> Built for security commanders,
-                cloud economists, and platform teams. Currently inspecting{' '}
-                <strong style={{ color: 'var(--accent-sky)' }}>{activeTenant.name}</strong>.{' '}
-                {azureEnabled
-                  ? <>Switch perspective using the role selector in the top bar, or click <strong>Connect Cloud</strong> to onboard your own Azure tenant.</>
-                  : <>The Azure estate has been decommissioned, so inventory, billing and metrics are unavailable and remediation is disabled. Sign in as SecOps and use <strong>Seed Demo</strong> to explore detection, correlation and AI triage offline.</>}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {azureEnabled && (
-                <button
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.72rem', padding: '4px 10px' }}
-                  onClick={() => setConnectTenantModalOpen(true)}
-                >
-                  + Connect Your Azure Tenant
-                </button>
-              )}
-              <button
-                onClick={() => setShowEvaluatorBanner(false)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-tertiary)',
-                  cursor: 'pointer',
-                  padding: '4px',
-                }}
-                title="Dismiss banner"
-              >
-                <X size={14} />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Dynamic Alerts Banner */}
-        <AlertsBanner
-          dbDegradedWarning={dbDegradedWarning}
-          apiErrors={apiErrors}
-          onRetry={loadData}
-        />
-
         {/* Tab 1: Overview */}
         {activeTab === 'overview' && (
           <OverviewTab
@@ -506,6 +526,7 @@ export const App: React.FC = () => {
           <ResourcesTab
             resources={resources}
             onInspectResource={id => setInspectedResourceId(id)}
+            azureEnabled={azureEnabled}
             activePersona={activePersona}
           />
         )}
@@ -538,6 +559,7 @@ export const App: React.FC = () => {
             remediationEnabled={health?.azure_integration?.remediation_enabled ?? false}
           />
         )}
+        </div>
       </main>
 
       {/* Slide-over Deep Resource Drawer */}

@@ -15,7 +15,7 @@ export const AlertsBanner: React.FC<AlertsBannerProps> = ({
   if (!dbDegradedWarning && apiErrors.length === 0) return null;
 
   return (
-    <div style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
       {dbDegradedWarning && (
         <div
           style={{

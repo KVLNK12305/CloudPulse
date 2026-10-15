@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import {
-  AlertTriangle,
   ArrowRight,
   Zap,
 } from 'lucide-react';
@@ -87,154 +86,16 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
     ? `Standard ${FINOPS_BUDGET.windowDays}-day allocation is ${formatCurrency(FINOPS_BUDGET.amount, FINOPS_BUDGET.currency)}; actual burn is ${formatCurrency(currentActual, currency)} (${budgetPct}%).`
     : `Budget utilization unavailable: ${budget.note.toLowerCase()}.`;
 
+  const lensCfg = getPersonaConfig(activePersona, {
+    incidents,
+    costTotal: hasCostData && totalCost != null ? totalCost : undefined,
+    costCurrency: currency,
+    topCorrIncident: topCorr,
+    azureEnabled,
+  });
+
   return (
-    <div
-      ref={containerRef}
-      style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}
-    >
-      {/* Latency Notice Banner */}
-      <div
-        style={{
-          background: 'rgba(246, 173, 85, 0.08)',
-          border: '1px solid rgba(246, 173, 85, 0.28)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '12px 18px',
-          color: '#feebc8',
-          fontSize: '0.80rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-        }}
-      >
-        <AlertTriangle size={18} color="#f6ad55" style={{ flexShrink: 0 }} />
-        <div>
-          {azureEnabled ? (
-            <>
-              <strong>Azure Cost Management Notice:</strong> Cost telemetry reflects closed daily billing cycles.
-              Due to Azure billing latency, consumption has a 24–48h reconciliation window. Today's in-flight consumption is
-              not reported until closed.
-            </>
-          ) : (
-            <>
-              <strong>Azure Cost Management Offline:</strong> The Azure estate has been decommissioned, so no billing data
-              is queried. Correlated overruns below come only from seeded demo incidents.
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Persona Lens Banner in FinOps Console */}
-      {(() => {
-        const pCfg = getPersonaConfig(activePersona, {
-          incidents,
-          costTotal: hasCostData && totalCost != null ? totalCost : undefined,
-          costCurrency: currency,
-          topCorrIncident: topCorr,
-          azureEnabled,
-        });
-        return (
-          <div
-            className="panel"
-            style={{
-              borderLeft: `4px solid ${pCfg.color}`,
-              background: `linear-gradient(135deg, ${pCfg.accentBg} 0%, rgba(13, 20, 32, 0.95) 100%)`,
-              padding: '12px 18px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '6px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span
-                  style={{
-                    fontSize: '0.66rem',
-                    fontWeight: 800,
-                    fontFamily: 'var(--font-mono)',
-                    color: pCfg.color,
-                    padding: '2px 7px',
-                    borderRadius: 'var(--radius-xs)',
-                    background: `${pCfg.color}20`,
-                    border: `1px solid ${pCfg.color}45`,
-                    textTransform: 'uppercase',
-                  }}
-                >
-                  {pCfg.label} LENS
-                </span>
-                <span style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Financial Perspective & Unit Velocity
-                </span>
-              </div>
-
-              {activePersona === 'secops' && (
-                <button
-                  className="btn"
-                  onClick={() => onNavigateTab('incidents')}
-                  style={{
-                    fontSize: '0.68rem',
-                    padding: '3px 8px',
-                    background: `${pCfg.color}20`,
-                    color: pCfg.color,
-                    border: `1px solid ${pCfg.color}50`,
-                  }}
-                >
-                  Inspect Threat Vector
-                </button>
-              )}
-            </div>
-
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              {topCorr ? (
-                <>
-                  {activePersona === 'finops' && (
-                    <>
-                      <strong>Unit Economics Lens: </strong> Workload variance indicates a +{topCorr.cost_impact?.percentage_increase.toFixed(0)}% deviation on <code>{topCorr.resource?.name || 'workload'}</code>. {budgetSentence} Unchecked egress threatens budget envelope.
-                    </>
-                  )}
-                  {activePersona === 'secops' && (
-                    <>
-                      <strong>Attacker Financial Footprint: </strong> Anomaly deviation (+{formatCurrency(topCorr.cost_impact?.deviation_absolute, topCorr.cost_impact?.currency || currency)}) is directly correlated with incident <code>{topCorr.incident_id}</code> ({topCorr.title}). Remediating this threat halts anomalous subscription egress!
-                    </>
-                  )}
-                  {activePersona === 'platform' && (
-                    <>
-                      <strong>Infrastructure Efficiency: </strong> Egress traffic spikes correspond to anomalous transfer over <code>{topCorr.resource?.name || 'interface'}</code>. Verify Azure NAT gateway / NSG egress rate limiting rules.
-                    </>
-                  )}
-                  {activePersona === 'executive' && (
-                    <>
-                      <strong>Spend Governance Lens: </strong> Correlated overage currently accounts for +{formatCurrency(topCorr.cost_impact?.deviation_absolute, topCorr.cost_impact?.currency || currency)}. Uncontained threat vectors drive compounding unit cost volatility.
-                    </>
-                  )}
-                </>
-              ) : (
-                <>
-                  {activePersona === 'finops' && (
-                    <>
-                      <strong>Unit Economics Lens: </strong> Cloud spend is operating within nominal parameters. {budgetSentence} Zero statistical cost outliers or threat overruns detected.
-                    </>
-                  )}
-                  {activePersona === 'secops' && (
-                    <>
-                      <strong>Attacker Financial Footprint: </strong> Zero financial overages linked to security threats. Workloads are operating within standard egress and compute baselines.
-                    </>
-                  )}
-                  {activePersona === 'platform' && (
-                    <>
-                      <strong>Infrastructure Efficiency: </strong> Workload network egress is nominal. Telemetry health and NAT gateway metrics report optimal zero-loss throughput.
-                    </>
-                  )}
-                  {activePersona === 'executive' && (
-                    <>
-                      <strong>Spend Governance Lens: </strong> Enterprise spend is aligned with budgeted unit economics. Zero high-exposure threat overages active.
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        );
-      })()}
+    <div ref={containerRef} className="page-stack">
 
       {/* FinOps KPI Summary Grid */}
       <div className="kpi-grid">
@@ -446,6 +307,61 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
             No correlated security-financial anomaly detected in active baseline observations.
           </div>
         )}
+
+        <div
+          className="lens-strip"
+          style={{ marginTop: '14px', background: lensCfg.accentBg, borderLeft: `3px solid ${lensCfg.color}` }}
+        >
+          <div>
+              {topCorr ? (
+                <>
+                  {activePersona === 'finops' && (
+                    <>
+                      <strong>Unit Economics Lens: </strong> Workload variance indicates a +{topCorr.cost_impact?.percentage_increase.toFixed(0)}% deviation on <code>{topCorr.resource?.name || 'workload'}</code>. {budgetSentence} Unchecked egress threatens budget envelope.
+                    </>
+                  )}
+                  {activePersona === 'secops' && (
+                    <>
+                      <strong>Attacker Financial Footprint: </strong> Anomaly deviation (+{formatCurrency(topCorr.cost_impact?.deviation_absolute, topCorr.cost_impact?.currency || currency)}) is directly correlated with incident <code>{topCorr.incident_id}</code> ({topCorr.title}). Remediating this threat halts anomalous subscription egress!
+                    </>
+                  )}
+                  {activePersona === 'platform' && (
+                    <>
+                      <strong>Infrastructure Efficiency: </strong> Egress traffic spikes correspond to anomalous transfer over <code>{topCorr.resource?.name || 'interface'}</code>. Verify Azure NAT gateway / NSG egress rate limiting rules.
+                    </>
+                  )}
+                  {activePersona === 'executive' && (
+                    <>
+                      <strong>Spend Governance Lens: </strong> Correlated overage currently accounts for +{formatCurrency(topCorr.cost_impact?.deviation_absolute, topCorr.cost_impact?.currency || currency)}. Uncontained threat vectors drive compounding unit cost volatility.
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {activePersona === 'finops' && (
+                    <>
+                      <strong>Unit Economics Lens: </strong> Cloud spend is operating within nominal parameters. {budgetSentence} Zero statistical cost outliers or threat overruns detected.
+                    </>
+                  )}
+                  {activePersona === 'secops' && (
+                    <>
+                      <strong>Attacker Financial Footprint: </strong> Zero financial overages linked to security threats. Workloads are operating within standard egress and compute baselines.
+                    </>
+                  )}
+                  {activePersona === 'platform' && (
+                    <>
+                      <strong>Infrastructure Efficiency: </strong> Workload network egress is nominal. Telemetry health and NAT gateway metrics report optimal zero-loss throughput.
+                    </>
+                  )}
+                  {activePersona === 'executive' && (
+                    <>
+                      <strong>Spend Governance Lens: </strong> Enterprise spend is aligned with budgeted unit economics. Zero high-exposure threat overages active.
+                    </>
+                  )}
+                </>
+              )}
+          </div>
+        </div>
       </div>
 
       {/* Top Cost Drivers Table with Tactile Segmented LED Meters */}

@@ -66,6 +66,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
   const [modalTargetStatus, setModalTargetStatus] = useState<'APPROVED' | 'REJECTED'>('APPROVED');
   const [isSubmittingApproval, setIsSubmittingApproval] = useState<boolean>(false);
   const [exportModalOpen, setExportModalOpen] = useState<boolean>(false);
+  const [detailTab, setDetailTab] = useState<'triage' | 'timeline' | 'evidence'>('triage');
 
   const detailPanelRef = useRef<HTMLDivElement>(null);
 
@@ -242,6 +243,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
   const approverLabel = approvers.length > 0 ? approvers.join(', ') : 'no recorded approver';
 
   return (
+    <div className="page-stack">
     <div className="main-workspace">
       {/* Master: Incident List Panel */}
       <aside className="incident-list-panel">
@@ -335,7 +337,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                             fontSize: '0.62rem',
                           }}
                         >
-                          SIMULATION
+                          SIMULATED
                         </span>
                       )}
                     </div>
@@ -397,28 +399,6 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
           <>
             {/* Header Card */}
             <div className="detail-header-card">
-              {isDemo && (
-                <div
-                  style={{
-                    background: 'rgba(159, 122, 234, 0.10)',
-                    border: '1px solid rgba(159, 122, 234, 0.30)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: '12px 14px',
-                    marginBottom: '16px',
-                    fontSize: '0.78rem',
-                    color: '#d6bcfa',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                  }}
-                >
-                  <Sparkles size={16} color="#9f7aea" style={{ flexShrink: 0 }} />
-                  <div>
-                    <strong>Seeded Demonstration Fixture:</strong> This incident was generated from simulated test scenario telemetry (workload <code>{selectedIncident.resource.name}</code>, simulated caller <code>{selectedIncident.identity?.caller || 'admin@cloudpulse.io'}</code>). It is intended for testing and operator demonstration.
-                  </div>
-                </div>
-              )}
-
               <div
                 style={{
                   display: 'flex',
@@ -428,7 +408,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                   flexWrap: 'wrap',
                 }}
               >
-                <div>
+                <div style={{ flex: '1 1 420px', minWidth: 0 }}>
                   <div
                     style={{
                       display: 'flex',
@@ -451,8 +431,21 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                       {selectedIncident.incident_id}
                     </span>
                     <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)' }}>
-                      Created: {selectedIncident.created_at}
+                      {(selectedIncident.created_at || '').replace('T', ' ').substring(0, 16)} UTC
                     </span>
+                    {isDemo && (
+                      <span
+                        className="badge-status"
+                        style={{
+                          background: 'rgba(159, 122, 234, 0.16)',
+                          color: '#9f7aea',
+                          border: '1px solid rgba(159, 122, 234, 0.35)',
+                        }}
+                        title={`Seeded demonstration fixture: simulated telemetry for ${selectedIncident.resource.name}, simulated caller ${selectedIncident.identity?.caller || 'admin@cloudpulse.io'}.`}
+                      >
+                        SIMULATED
+                      </span>
+                    )}
                   </div>
                   <h1 className="detail-heading">{selectedIncident.title}</h1>
                 </div>
@@ -540,78 +533,16 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
 
               return (
                 <div
-                  className="panel"
-                  style={{
-                    borderLeft: `4px solid ${pCfg.color}`,
-                    background: `linear-gradient(135deg, ${pCfg.accentBg} 0%, rgba(13, 20, 32, 0.95) 100%)`,
-                    padding: '12px 18px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '6px',
-                  }}
+                  className="lens-strip"
+                  style={{ background: pCfg.accentBg, borderLeft: `3px solid ${pCfg.color}` }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span
-                        style={{
-                          fontSize: '0.66rem',
-                          fontWeight: 800,
-                          fontFamily: 'var(--font-mono)',
-                          color: pCfg.color,
-                          padding: '2px 7px',
-                          borderRadius: 'var(--radius-xs)',
-                          background: `${pCfg.color}20`,
-                          border: `1px solid ${pCfg.color}45`,
-                          textTransform: 'uppercase',
-                        }}
-                      >
-                        {pCfg.label} LENS
-                      </span>
-                      <span style={{ fontSize: '0.80rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                        {pCfg.tagline}
-                      </span>
-                    </div>
-
-                    {activePersona === 'finops' && (
-                      <span
-                        style={{
-                          fontSize: '0.68rem',
-                          fontFamily: 'var(--font-mono)',
-                          fontWeight: 700,
-                          color: '#38d9a9',
-                          background: 'rgba(56, 217, 169, 0.15)',
-                          padding: '2px 8px',
-                          borderRadius: 'var(--radius-xs)',
-                          border: '1px solid rgba(56, 217, 169, 0.35)',
-                        }}
-                      >
-                        {isResolved
-                          ? 'Overrun Arrested'
-                          : estSavingsMonthly > 0
-                          ? `ROI: Avoids ~${formatCurrency(estSavingsMonthly, curr)} / Mo`
-                          : 'Zero Cost Anomaly'}
-                      </span>
-                    )}
-
-                    {activePersona === 'executive' && (
-                      <button
-                        className="btn"
-                        onClick={() => setExportModalOpen(true)}
-                        style={{
-                          fontSize: '0.68rem',
-                          padding: '3px 8px',
-                          background: `${pCfg.color}20`,
-                          color: pCfg.color,
-                          border: `1px solid ${pCfg.color}50`,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Export CISO Brief
-                      </button>
-                    )}
-                  </div>
-
-                  <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  <span
+                    className="context-badge"
+                    style={{ color: pCfg.color, background: `${pCfg.color}1f`, border: `1px solid ${pCfg.color}45` }}
+                  >
+                    {pCfg.label.split(' ')[0]} lens
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     {activePersona === 'secops' && (
                       isResolved ? (
                         <>
@@ -661,6 +592,27 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                       )
                     )}
                   </div>
+                    {activePersona === 'finops' && (
+                      <span
+                        style={{
+                          fontSize: '0.68rem',
+                          fontFamily: 'var(--font-mono)',
+                          fontWeight: 700,
+                          color: '#38d9a9',
+                          background: 'rgba(56, 217, 169, 0.15)',
+                          padding: '2px 8px',
+                          borderRadius: 'var(--radius-xs)',
+                          border: '1px solid rgba(56, 217, 169, 0.35)',
+                        }}
+                      >
+                        {isResolved
+                          ? 'Overrun Arrested'
+                          : estSavingsMonthly > 0
+                          ? `ROI: Avoids ~${formatCurrency(estSavingsMonthly, curr)} / Mo`
+                          : 'Zero Cost Anomaly'}
+                      </span>
+                    )}
+
                 </div>
               );
             })()}
@@ -706,7 +658,29 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
               </div>
             )}
 
+            {/* Detail sub-navigation keeps the inspector to one screen at a time */}
+            <div className="detail-subtabs">
+              <div className="segmented" role="tablist" aria-label="Incident detail sections">
+                {([
+                  ['triage', 'Triage & Actions'],
+                  ['timeline', `Timeline (${(selectedIncident.timeline || []).length})`],
+                  ['evidence', `Evidence (${findings.length})`],
+                ] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    role="tab"
+                    aria-selected={detailTab === id}
+                    className={detailTab === id ? 'active' : ''}
+                    onClick={() => setDetailTab(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* AI Advisory Triage Card */}
+            {detailTab === 'triage' && (
             <div className="ai-card">
               <div className="ai-header">
                 <div
@@ -822,49 +796,6 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                   <div>
                     <div className="ai-section-title">Executive Summary</div>
                     <div className="ai-text-box">{ai?.summary}</div>
-                  </div>
-
-                  {/* Risk Assessment & Likely Scenario */}
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                      gap: '14px',
-                    }}
-                  >
-                    <div>
-                      <div className="ai-section-title">Risk Assessment</div>
-                      <div className="ai-text-box">{ai?.risk_assessment}</div>
-                    </div>
-                    <div>
-                      <div className="ai-section-title">Likely Scenario</div>
-                      <div className="ai-text-box">{ai?.likely_scenario}</div>
-                    </div>
-                  </div>
-
-                  {/* Tripartition Grid */}
-                  <div className="tripartition-grid">
-                    <div className="tri-box facts">
-                      <div className="ai-section-title" style={{ color: 'var(--accent-sky)' }}>
-                        Verified Facts (Telemetry Grounded)
-                      </div>
-                      <ul className="tri-list">
-                        {(ai?.facts || []).map((fact, idx) => (
-                          <li key={idx}>{fact}</li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <div className="tri-box inferences">
-                      <div className="ai-section-title" style={{ color: 'var(--accent-amber)' }}>
-                        Inferences & Deductions
-                      </div>
-                      <ul className="tri-list">
-                        {(ai?.inferences || []).map((inf, idx) => (
-                          <li key={idx}>{inf}</li>
-                        ))}
-                      </ul>
-                    </div>
                   </div>
 
                   {/* Recommended Operator Actions & Remediation Gate */}
@@ -1007,6 +938,50 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                       })}
                     </div>
                   </div>
+
+                  {/* Risk Assessment & Likely Scenario */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                      gap: '14px',
+                    }}
+                  >
+                    <div>
+                      <div className="ai-section-title">Risk Assessment</div>
+                      <div className="ai-text-box">{ai?.risk_assessment}</div>
+                    </div>
+                    <div>
+                      <div className="ai-section-title">Likely Scenario</div>
+                      <div className="ai-text-box">{ai?.likely_scenario}</div>
+                    </div>
+                  </div>
+
+                  {/* Tripartition Grid */}
+                  <div className="tripartition-grid">
+                    <div className="tri-box facts">
+                      <div className="ai-section-title" style={{ color: 'var(--accent-sky)' }}>
+                        Verified Facts (Telemetry Grounded)
+                      </div>
+                      <ul className="tri-list">
+                        {(ai?.facts || []).map((fact, idx) => (
+                          <li key={idx}>{fact}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="tri-box inferences">
+                      <div className="ai-section-title" style={{ color: 'var(--accent-amber)' }}>
+                        Inferences & Deductions
+                      </div>
+                      <ul className="tri-list">
+                        {(ai?.inferences || []).map((inf, idx) => (
+                          <li key={idx}>{inf}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+
                 </>
               ) : (
                 <div className="empty-state" style={{ padding: '24px 0' }}>
@@ -1016,8 +991,10 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                 </div>
               )}
             </div>
+            )}
 
             {/* Chronological Evidence Timeline */}
+            {detailTab === 'timeline' && (
             <div className="timeline-card">
               <div className="panel-title" style={{ marginBottom: '14px' }}>
                 <Clock size={16} color="var(--accent-sky)" />
@@ -1068,7 +1045,10 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
               </div>
             </div>
 
+            )}
+
             {/* Associated Evidence Records */}
+            {detailTab === 'evidence' && (
             <div className="panel" style={{ padding: '20px' }}>
               <div className="panel-title" style={{ marginBottom: '14px' }}>
                 <Layers size={16} color="var(--accent-sky)" />
@@ -1146,6 +1126,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                 </div>
               )}
             </div>
+            )}
           </>
         )}
       </section>
@@ -1168,6 +1149,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
         onClose={() => setExportModalOpen(false)}
         onShowToast={onShowToast}
       />
+    </div>
     </div>
   );
 };

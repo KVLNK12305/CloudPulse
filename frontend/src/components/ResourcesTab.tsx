@@ -1,26 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import gsap from 'gsap';
-import {
-  Check,
-  ExternalLink,
-  Info,
-  Search,
-} from 'lucide-react';
+import { Check, ExternalLink, Eye, Search } from 'lucide-react';
 import { formatCurrency } from '../services/api';
 import { Persona, ResourceItem, Severity } from '../types';
 import { PERSONA_CONFIGS } from '../services/personaConfig';
-import { Eye } from 'lucide-react';
 
 interface ResourcesTabProps {
   resources: ResourceItem[];
   onInspectResource: (resourceId: string) => void;
   activePersona?: Persona;
+  azureEnabled?: boolean;
 }
 
 export const ResourcesTab: React.FC<ResourcesTabProps> = ({
   resources,
   onInspectResource,
   activePersona = 'secops',
+  azureEnabled = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
@@ -94,32 +90,7 @@ export const ResourcesTab: React.FC<ResourcesTabProps> = ({
   }, [filtered, activePersona]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}
-    >
-      {/* Notice Banner */}
-      <div
-        style={{
-          background: 'rgba(99, 179, 237, 0.08)',
-          border: '1px solid rgba(99, 179, 237, 0.22)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '12px 18px',
-          color: '#90cdf4',
-          fontSize: '0.80rem',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-        }}
-      >
-        <Info size={18} color="var(--accent-sky)" style={{ flexShrink: 0 }} />
-        <div>
-          <strong>Azure Resource Inventory:</strong> Real-time topology queried directly from{' '}
-          <strong>Azure Resource Graph</strong>. Click on any resource row or "Inspect" to inspect live runtime metrics from{' '}
-          <strong>Azure Monitor</strong>, billing breakdown from <strong>Azure Cost Management</strong>, and associated{' '}
-          <strong>CloudPulse</strong> threat surface findings.
-        </div>
-      </div>
+    <div ref={containerRef} className="page-stack">
 
       {/* Resources Table Container */}
       <div className="data-table-container">
@@ -162,29 +133,18 @@ export const ResourcesTab: React.FC<ResourcesTabProps> = ({
               <option value="CLEAN">Clean (No Findings)</option>
             </select>
 
-            {/* Active POV Lens Indicator */}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '4px 10px',
-                borderRadius: 'var(--radius-xs)',
-                background: `${pCfg.color}15`,
-                border: `1px solid ${pCfg.color}40`,
-                fontSize: '0.70rem',
-                color: pCfg.color,
-                fontWeight: 700,
-              }}
-            >
-              <Eye size={12} />
-              <span>POV LENS: {pCfg.label.toUpperCase()} ({pCfg.focusHighlights.quickFilterLabel})</span>
-            </div>
           </div>
 
           <div className="toolbar-right">
-            <span style={{ fontSize: '0.74rem', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-              Showing {sortedResources.length} of {resources.length} resources
+            <span
+              style={{ fontSize: '0.7rem', color: pCfg.color, display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+              title={`Rows are ordered for the ${pCfg.label} perspective`}
+            >
+              <Eye size={12} />
+              <span>Sorted for {pCfg.label.split(' ')[0]}</span>
+            </span>
+            <span style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+              {sortedResources.length} of {resources.length}
             </span>
           </div>
         </div>
@@ -208,9 +168,11 @@ export const ResourcesTab: React.FC<ResourcesTabProps> = ({
               {sortedResources.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="empty-state">
-                    {resources.length === 0
-                      ? 'Loading Azure Resource Graph inventory...'
-                      : 'No matching Azure resources found.'}
+                    {resources.length > 0
+                      ? 'No resources match these filters.'
+                      : azureEnabled
+                      ? 'No resources discovered in the subscription.'
+                      : 'No inventory: Azure integration is offline.'}
                   </td>
                 </tr>
               ) : (
