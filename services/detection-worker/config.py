@@ -29,12 +29,16 @@ _load_dotenv()
 
 @dataclass(frozen=True)
 class Config:
+    # Azure integration master switch. The Azure estate used for the case study has
+    # been decommissioned, so live Azure clients are off unless explicitly re-enabled.
+    AZURE_INTEGRATION_ENABLED: bool = os.getenv("AZURE_INTEGRATION_ENABLED", "false").lower() in ("true", "1", "yes")
+
     # Log Analytics & Azure Identity
-    WORKSPACE_ID: str = os.getenv("LOG_ANALYTICS_WORKSPACE_ID", "f4fcc158-554b-497e-8231-4cc47c66b194")
+    WORKSPACE_ID: str = os.getenv("LOG_ANALYTICS_WORKSPACE_ID", "")
     AZURE_CLIENT_ID: str = os.getenv("AZURE_CLIENT_ID", "")
     
     # Database Settings
-    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "cloudpulse-postgres01.postgres.database.azure.com")
+    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "")
     POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5432"))
     POSTGRES_DB: str = os.getenv("POSTGRES_DB", "postgres")
     POSTGRES_USER: str = os.getenv("POSTGRES_USER", "cloudpulseadmin")
@@ -56,6 +60,9 @@ class Config:
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "https://vrwqpgodyndyszgnnssn.supabase.co")
     SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     SUPABASE_JWT_SECRET: str = os.getenv("SUPABASE_JWT_SECRET", "")
+    # Local-only shortcut: passwordless operator login and the 123456/000000 passcode.
+    # Never enable on a reachable deployment.
+    DEV_AUTH_ENABLED: bool = os.getenv("CLOUDPULSE_DEV_AUTH", "false").lower() in ("true", "1", "yes")
 
     # Azure AI Triage Settings
     AZURE_OPENAI_ENDPOINT: str = os.getenv("AZURE_OPENAI_ENDPOINT", "")

@@ -4,6 +4,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Tuple
 
+from config import config
 from database.postgres import DatabaseRepository
 from models.finding import Finding
 from models.incident import Incident, IncidentStatus
@@ -48,6 +49,16 @@ class RemediationVerificationError(RemediationError):
     pass
 
 
+class RemediationUnavailableError(RemediationError):
+    """Raised when execution is requested but Azure integration is disabled."""
+    pass
+
+
+class RemediationAdvisoryError(RemediationError):
+    """Raised when execution is requested for an advisory (non-mutating) action."""
+    pass
+
+
 class RemediationService:
     """
     Deterministic Controlled Remediation Engine for CloudPulse.
@@ -57,13 +68,48 @@ class RemediationService:
 
     PERMISSIVE_SOURCES = {"*", "0.0.0.0/0", "internet"}
 
+    INGRESS_KEYWORDS = ("ingress", "inbound", "public exposure", "exposure", "source ip", "nsg exposure")
+    EGRESS_KEYWORDS = ("egress", "outbound", "isolate", "isolation", "destination")
+
     def __init__(
         self,
         db_repo: DatabaseRepository,
         network_client: Optional[AzureNetworkClient] = None,
+        azure_enabled: Optional[bool] = None,
     ):
         self._db = db_repo
-        self._network_client = network_client or AzureNetworkClient()
+        if azure_enabled is None:
+            azure_enabled = network_client is not None or config.AZURE_INTEGRATION_ENABLED
+        self.azure_enabled = azure_enabled
+        if network_client is not None:
+            self._network_client = network_client
+        else:
+            self._network_client = AzureNetworkClient() if azure_enabled else None
+
+    @classmethod
+    def classify_recommended_action(
+        cls,
+        action: Dict[str, Any],
+        finding_types: set,
+    ) -> RemediationActionType:
+        """
+        Map an AI recommended action to a deterministic remediation type.
+        Only CONTAINMENT actions whose intent matches an evidenced finding become
+        executable; everything else is ADVISORY (approval is recorded, nothing is mutated).
+        """
+        category = str(action.get("category") or "").upper()
+        if category != "CONTAINMENT":
+            return RemediationActionType.ADVISORY
+
+        text = f"{action.get('title') or ''} {action.get('description') or ''}".lower()
+        wants_ingress = any(k in text for k in cls.INGRESS_KEYWORDS)
+        wants_egress = any(k in text for k in cls.EGRESS_KEYWORDS)
+
+        if wants_egress and "SUSPICIOUS_OUTBOUND_ACTIVITY" in finding_types:
+            return RemediationActionType.ISOLATE_WORKLOAD
+        if wants_ingress and "UNEXPECTED_PUBLIC_EXPOSURE" in finding_types:
+            return RemediationActionType.DISABLE_PUBLIC_INGRESS
+        return RemediationActionType.ADVISORY
 
     def propose_action_from_recommendation(
         self,
@@ -220,6 +266,16 @@ class RemediationService:
             logger.info("Remediation %s already VERIFIED. Returning idempotent result.", record.remediation_id)
             return record
 
+        if record.action_type == RemediationActionType.ADVISORY:
+            raise RemediationAdvisoryError(
+                f"Action '{action_id}' is advisory: its approval is recorded, but it has no automated Azure change to execute."
+            )
+
+        if not self.azure_enabled or self._network_client is None:
+            raise RemediationUnavailableError(
+                "Azure integration is disabled (estate decommissioned); remediation cannot be executed."
+            )
+
         now_iso = datetime.now(timezone.utc).isoformat()
         incident.status = IncidentStatus.INVESTIGATING
         record.status = RemediationStatus.PRECONDITION_CHECKING
@@ -257,7 +313,11 @@ class RemediationService:
             )
 
             # Check if all actions on incident are verified; if so, resolve incident
-            if all(a.status == RemediationStatus.VERIFIED for a in container.actions.values()):
+            executable = [
+                a for a in container.actions.values()
+                if a.action_type != RemediationActionType.ADVISORY
+            ]
+            if executable and all(a.status == RemediationStatus.VERIFIED for a in executable):
                 incident.status = IncidentStatus.RESOLVED
 
         except RemediationPreconditionError as pe:

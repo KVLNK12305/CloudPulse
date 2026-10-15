@@ -7,7 +7,9 @@ def test_health_endpoint(client):
     assert response.status_code == 200
     data = response.get_json()
     assert data["service"] == "cloudpulse-detection-worker"
-    assert data["status"] == "healthy"
+    # No Azure telemetry clients are configured in this fixture, so the worker reports offline
+    assert data["status"] == "offline"
+    assert data["azure_integration"]["enabled"] is False
     assert data["detector"] == "RESOURCE_CREATION"
 
 

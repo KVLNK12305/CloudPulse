@@ -47,11 +47,12 @@ class TestAdversarialIdentityPlatform:
         assert config.AZURE_SUBSCRIPTION_ID == "90b900ea-4273-4b40-a343-091aecfe2911", (
             "HARDCODED PRODUCTION IDENTIFIER: AZURE_SUBSCRIPTION_ID committed as default in source code."
         )
-        assert config.WORKSPACE_ID == "f4fcc158-554b-497e-8231-4cc47c66b194", (
-            "HARDCODED PRODUCTION IDENTIFIER: Log Analytics WORKSPACE_ID committed as default in source code."
+        # Decommissioned infrastructure must no longer be baked in as defaults
+        assert Config.__dataclass_fields__["WORKSPACE_ID"].default == "" or os.getenv("LOG_ANALYTICS_WORKSPACE_ID"), (
+            "Decommissioned Log Analytics WORKSPACE_ID is still committed as a default."
         )
-        assert "cloudpulse-postgres01.postgres.database.azure.com" in config.POSTGRES_HOST, (
-            "HARDCODED INFRASTRUCTURE HOST: POSTGRES_HOST committed as default in source code."
+        assert "cloudpulse-postgres01" not in Config.__dataclass_fields__["POSTGRES_HOST"].default, (
+            "Decommissioned POSTGRES_HOST is still committed as a default."
         )
         assert "vrwqpgodyndyszgnnssn.supabase.co" in config.SUPABASE_URL, (
             "HARDCODED TENANT URL: SUPABASE_URL committed as default in source code."

@@ -132,7 +132,10 @@ class AzureAIClient:
         Preserves truthful execution modes: LIVE only when a real request succeeded.
         """
         has_endpoint = bool(self.endpoint and self.endpoint.startswith("https://"))
-        auth_mode = "api_key" if bool(self.api_key) else ("managed_identity" if self._credential else "none")
+        if not has_endpoint:
+            auth_mode = "none"
+        else:
+            auth_mode = "api_key" if bool(self.api_key) else ("managed_identity" if self._credential else "none")
 
         if self.mock_mode:
             status = "MOCK_MODE"

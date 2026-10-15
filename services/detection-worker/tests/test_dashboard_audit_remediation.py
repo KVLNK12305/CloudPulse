@@ -180,7 +180,11 @@ def test_dashboard_summary_contract_currency(audit_app_context):
     assert resp.status_code == 200
     data = resp.get_json()
     assert "currency" in data
-    assert data["currency"] == "USD"
+    # Currency is derived from correlated incidents rather than hardcoded
+    if data["total_financial_overrun"] == 0:
+        assert data["currency"] is None
+    else:
+        assert data["currency"] is not None
     assert "total_financial_overrun" in data
     assert "total_incidents" in data
 

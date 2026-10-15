@@ -2,7 +2,7 @@ import logging
 import os
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, g, jsonify, request, send_from_directory
 
 from config import config
 from database.postgres import PostgresDatabase, InMemoryDatabase, DatabaseRepository
@@ -34,10 +34,12 @@ from services.remediation_service import (
     RemediationUnapprovedError,
     RemediationPreconditionError,
     RemediationVerificationError,
+    RemediationUnavailableError,
+    RemediationAdvisoryError,
 )
 from services.detection_service import DetectionService
 from services.incident_orchestrator import IncidentOrchestrator
-from services.auth_service import auth_service, OPERATOR_ROSTER, require_auth
+from services.auth_service import auth_service, require_auth
 from telemetry.cost_baseline import CostBaselineStore, InMemoryCostBaselineStore
 from telemetry.cost_management import (
     CostManagementClient,
@@ -131,6 +133,8 @@ def create_app(
     # Initialize Log Analytics client
     if log_client is not _DEFAULT_CLIENT:
         telemetry_client = log_client
+    elif not config.AZURE_INTEGRATION_ENABLED:
+        telemetry_client = None
     else:
         try:
             telemetry_client = LogAnalyticsClient()
@@ -141,6 +145,8 @@ def create_app(
     # Initialize Resource Graph client
     if arg_client is not _DEFAULT_CLIENT:
         graph_client = arg_client
+    elif not config.AZURE_INTEGRATION_ENABLED:
+        graph_client = None
     else:
         try:
             graph_client = ResourceGraphClient()
@@ -151,6 +157,8 @@ def create_app(
     # Initialize Cost Management client
     if cost_client is not _DEFAULT_CLIENT:
         cost_telemetry_client = cost_client
+    elif not config.AZURE_INTEGRATION_ENABLED:
+        cost_telemetry_client = None
     else:
         try:
             cost_telemetry_client = CostManagementClient()
@@ -161,6 +169,8 @@ def create_app(
     # Initialize Azure Monitor Metrics client
     if metrics_client is not _DEFAULT_CLIENT:
         monitor_metrics = metrics_client
+    elif not config.AZURE_INTEGRATION_ENABLED:
+        monitor_metrics = None
     else:
         try:
             monitor_metrics = AzureMonitorMetricsClient()
@@ -184,13 +194,40 @@ def create_app(
 
     remediation_service = remediation_svc or RemediationService(
         db_repo=repository,
+        azure_enabled=config.AZURE_INTEGRATION_ENABLED,
     )
+
+    def _azure_integration_status() -> Dict[str, Any]:
+        live_clients = {
+            "resource_graph": graph_client is not None,
+            "cost_management": cost_telemetry_client is not None,
+            "log_analytics": telemetry_client is not None,
+            "monitor_metrics": monitor_metrics is not None,
+        }
+        any_live = any(live_clients.values())
+        return {
+            "enabled": any_live,
+            "mode": "live" if any_live else "offline",
+            "clients": live_clients,
+            "remediation_enabled": remediation_service.azure_enabled,
+            "subscription_id": config.AZURE_SUBSCRIPTION_ID if any_live else None,
+            "message": None if any_live else (
+                "Azure integration is disabled (estate decommissioned). Running as an offline demo: "
+                "inventory, billing and metrics are unavailable and remediation cannot be executed."
+            ),
+        }
 
     @app.route("/health", methods=["GET"])
     def health():
         is_postgres = _is_postgres_repo(repository)
         # Reflect database disconnection in overall status if degraded from failed Postgres connection
-        overall_status = "degraded" if getattr(app, "db_degraded", False) else "healthy"
+        azure_status = _azure_integration_status()
+        if getattr(app, "db_degraded", False):
+            overall_status = "degraded"
+        elif not azure_status["enabled"]:
+            overall_status = "offline"
+        else:
+            overall_status = "healthy"
 
         actual_ai_client = ai_triage_service._client
         ai_cfg = actual_ai_client.get_configuration_status() if hasattr(actual_ai_client, "get_configuration_status") else {}
@@ -207,6 +244,7 @@ def create_app(
                 CostAnomalyDetector.DETECTION_ID,
             ],
             "storage": "postgres" if is_postgres else "in_memory",
+            "azure_integration": azure_status,
             "database": {
                 "connected": is_postgres,
                 "readiness": "ready" if is_postgres else ("unhealthy" if getattr(app, "db_degraded", False) else "in_memory"),
@@ -264,6 +302,7 @@ def create_app(
         return send_from_directory(static_dir, "index.html")
 
     @app.route("/detect/resource-creation", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
     def detect_resource_creation():
         """
         Trigger the RESOURCE_CREATION detection pipeline.
@@ -289,6 +328,7 @@ def create_app(
             return jsonify({"status": "error", "message": str(ex)}), 500
 
     @app.route("/detect/unexpected-public-exposure", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
     def detect_unexpected_public_exposure():
         """
         Trigger the UNEXPECTED_PUBLIC_EXPOSURE detection pipeline.
@@ -328,6 +368,7 @@ def create_app(
             return jsonify({"status": "error", "message": str(ex)}), 500
 
     @app.route("/detect/suspicious-outbound", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
     def detect_suspicious_outbound():
         """
         Trigger the SUSPICIOUS_OUTBOUND_ACTIVITY detection pipeline.
@@ -425,6 +466,7 @@ def create_app(
             return jsonify({"status": "error", "message": str(ex)}), 500
 
     @app.route("/finops/cost-query", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
     def query_finops_costs():
         """
         Query and normalize Azure Cost Management telemetry, compute baselines,
@@ -584,6 +626,7 @@ def create_app(
         }), 200 if is_valid else 403
 
     @app.route("/detect/cost-anomaly", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
     def detect_cost_anomaly():
         """
         Trigger the COST_ANOMALY detection pipeline.
@@ -1205,14 +1248,14 @@ def create_app(
         and CloudPulse SecOps & FinOps telemetry.
         """
         sub_id = config.AZURE_SUBSCRIPTION_ID
-        rg = "cloudpulse-rg"
+        azure_status = _azure_integration_status()
 
         # 1. Resource counts via ARG
         res_count = 0
         by_type_counts = {}
         if graph_client:
             try:
-                inv = graph_client.get_resource_inventory(subscription_id=sub_id, resource_group=rg)
+                inv = graph_client.get_resource_inventory(subscription_id=sub_id)
                 res_count = len(inv)
                 for r in inv:
                     t = r.get("type", "unknown")
@@ -1265,9 +1308,10 @@ def create_app(
 
         return jsonify({
             "status": "success",
-            "subscription_id": sub_id,
-            "resource_group": rg,
+            "subscription_id": sub_id if azure_status["enabled"] else None,
+            "resource_group": None,
             "environment": config.ENVIRONMENT,
+            "azure_integration": azure_status,
             "resources": {
                 "total": res_count,
                 "by_type": by_type_counts,
@@ -1364,7 +1408,7 @@ def create_app(
             "timestamp": now_iso,
             "event": "STATUS_UPDATED",
             "operation": "OPERATOR_STATUS_MUTATION",
-            "caller": data.get("caller", "operator"),
+            "caller": (getattr(g, "cloudpulse_user", None) or {}).get("email") or data.get("caller", "operator"),
             "correlation_metadata": {"new_status": incident.status.value},
         })
         repository.save_incident(incident)
@@ -1410,6 +1454,7 @@ def create_app(
         return jsonify(incident.ai_analysis), 200
 
     @app.route("/api/incidents/<incident_id>/ai-triage", methods=["POST"])
+    @require_auth(allowed_personas=["secops"])
     def trigger_ai_triage(incident_id: str):
         incident = repository.get_incident(incident_id)
         if not incident:
@@ -1443,7 +1488,9 @@ def create_app(
         decision = (data.get("status") or "APPROVED").upper()
         if decision not in ("APPROVED", "REJECTED"):
             return jsonify({"error": "Invalid approval status. Must be 'APPROVED' or 'REJECTED'"}), 400
-        operator = data.get("operator", "security-operator")
+        # Attribute the decision to the authenticated operator, not a client-supplied name
+        auth_user = getattr(g, "cloudpulse_user", None)
+        operator = (auth_user or {}).get("email") or data.get("operator", "security-operator")
         notes = data.get("notes")
         now_iso = datetime.now(timezone.utc).isoformat()
 
@@ -1469,13 +1516,16 @@ def create_app(
                                f"and does not correspond to any AI triage recommendation."
                 }), 400
 
-            # Auto-register as PROPOSED from validated AI recommendation
-            act_type = RemediationActionType.DISABLE_PUBLIC_INGRESS
-            if any(
-                repository.get_finding(fid) and repository.get_finding(fid).finding_type == "SUSPICIOUS_OUTBOUND_ACTIVITY"
-                for fid in incident.findings
-            ):
-                act_type = RemediationActionType.ISOLATE_WORKLOAD
+            # Auto-register as PROPOSED from validated AI recommendation, typed from the
+            # recommended action itself (not from the incident's finding mix).
+            ai_action = next(
+                act for act in incident.ai_analysis.get("recommended_actions", [])
+                if act.get("id") == action_id
+            )
+            finding_types = {
+                f.finding_type for f in (repository.get_finding(fid) for fid in incident.findings) if f
+            }
+            act_type = RemediationService.classify_recommended_action(ai_action, finding_types)
 
             remediation_service.propose_action_from_recommendation(
                 incident=incident,
@@ -1555,6 +1605,10 @@ def create_app(
                 "incident": refreshed.model_dump(),
             }), http_status
 
+        except RemediationUnavailableError as ua:
+            return jsonify({"status": "error", "error_type": "AZURE_INTEGRATION_DISABLED", "message": str(ua)}), 503
+        except RemediationAdvisoryError as ae:
+            return jsonify({"status": "error", "error_type": "ADVISORY_ACTION", "message": str(ae)}), 400
         except RemediationUnapprovedError as ue:
             return jsonify({"status": "error", "error_type": "UNAPPROVED_ACTION", "message": str(ue)}), 400
         except RemediationPreconditionError as pe:
@@ -1587,6 +1641,7 @@ def create_app(
         triaged_count = 0
         triaged_live_count = 0
         triaged_fallback_count = 0
+        overrun_currencies = set()
 
         for inc in incidents:
             s_val = inc.severity.value.upper()
@@ -1596,6 +1651,8 @@ def create_app(
             if inc.cost_impact:
                 correlated_count += 1
                 total_overrun += float(inc.cost_impact.get("deviation_absolute", 0.0))
+                if inc.cost_impact.get("currency"):
+                    overrun_currencies.add(str(inc.cost_impact["currency"]).upper())
             if inc.ai_analysis and inc.ai_analysis.get("status") == "COMPLETED":
                 triaged_count += 1
                 if inc.ai_analysis.get("execution_mode") == "LIVE":
@@ -1613,7 +1670,9 @@ def create_app(
             "by_status": by_stat,
             "correlated_incidents": correlated_count,
             "total_financial_overrun": round(total_overrun, 2),
-            "currency": "USD",
+            # None when there is no overrun, "MIXED" when incidents bill in different currencies
+            "currency": (next(iter(overrun_currencies)) if len(overrun_currencies) == 1
+                         else ("MIXED" if overrun_currencies else None)),
             "triaged_count": triaged_count,
             "triaged_live_count": triaged_live_count,
             "triaged_fallback_count": triaged_fallback_count,
@@ -1649,6 +1708,13 @@ def create_app(
 
     @app.route("/api/auth/operator-login", methods=["POST"])
     def auth_operator_login():
+        # Passwordless login is a local development shortcut only
+        if not config.DEV_AUTH_ENABLED:
+            return jsonify({
+                "success": False,
+                "error": "Passwordless operator login is disabled. Sign in with an email verification code.",
+            }), 403
+
         data = request.get_json(silent=True) or {}
         email = data.get("email", "").strip().lower()
         if not email:
@@ -1699,7 +1765,7 @@ def create_app(
     def auth_status():
         return jsonify({
             "has_resend_key": auth_service.has_resend_key,
-            "roster": list(OPERATOR_ROSTER.values()),
+            "dev_auth_enabled": config.DEV_AUTH_ENABLED,
         }), 200
 
     return app

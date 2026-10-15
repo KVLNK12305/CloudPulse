@@ -278,8 +278,8 @@ class AuthService:
         email = raw_email.strip().lower()
         code_clean = str(code).strip()
 
-        # Resilient fallback: allow master passcode 123456 or 000000 when email delivery is rate-limited
-        if code_clean in ("123456", "000000"):
+        # Local-only fallback passcodes, gated behind CLOUDPULSE_DEV_AUTH
+        if config.DEV_AUTH_ENABLED and code_clean in ("123456", "000000"):
             self._otps.pop(email, None)
             user = self._resolve_user_profile(email)
             session_token = self.issue_operator_token(email)
@@ -293,7 +293,7 @@ class AuthService:
 
         stored = self._otps.get(email)
         if not stored:
-            return {"success": False, "error": "No pending verification code found for this email. Use code 123456 or request a new code."}
+            return {"success": False, "error": "No pending verification code found for this email. Please request a new code."}
 
         now = time.time()
         if now > stored["expires_at"]:
@@ -404,8 +404,8 @@ class AuthService:
                         except Exception as auth_err:
                             logger.debug(f"Supabase Auth API check: {auth_err}")
 
-                # Option C: Fallback in test/dev mode if signature could not be verified locally
-                if not payload and (not jwt_secret or jwt_secret.startswith("PASTE_YOUR_") or os.getenv("TESTING") or os.getenv("PYTEST_CURRENT_TEST")):
+                # Option C: unsigned decode is only acceptable inside the automated test harness
+                if not payload and (os.getenv("TESTING") or os.getenv("PYTEST_CURRENT_TEST")):
                     payload = jwt.decode(
                         clean_token,
                         options={"verify_signature": False, "verify_aud": False},
@@ -435,26 +435,25 @@ class AuthService:
         return False
 
     def _resolve_user_profile(self, email: str) -> Dict[str, Any]:
-        """Resolves email to an operator profile from the roster or constructs a standard profile."""
+        """Resolves email to a roster profile; unknown emails get a read-only observer profile."""
+        email = (email or "").strip().lower()
         if email in OPERATOR_ROSTER:
             return dict(OPERATOR_ROSTER[email])
 
-        # If email contains 'kushal', grant SecOps Super-Admin full access
-        is_kushal = "kushal" in email
         local_name = email.split("@")[0].replace(".", " ").title()
-
         initials = "".join([part[0] for part in local_name.split()[:2]]).upper() or "CP"
 
+        # Not on the roster: may view the executive lens but cannot mutate incidents
         return {
-            "id": f"op-{secrets.token_hex(4)}",
-            "name": f"K V L N Kushal" if is_kushal else local_name,
-            "initials": "KK" if is_kushal else initials,
-            "role": "Lead SecOps Commander & CISO (Full Access)" if is_kushal else "Cloud Security Operator",
+            "id": f"op-{hashlib.sha256(email.encode()).hexdigest()[:8]}",
+            "name": local_name,
+            "initials": initials,
+            "role": "Read-only Observer",
             "email": email,
-            "organization": "Enterprise Cyber Defense & Core SecOps" if is_kushal else "Enterprise Cloud Operations",
-            "primaryPersona": "secops" if is_kushal else "secops",
-            "allowedPersonas": ["secops", "executive", "platform", "finops"] if is_kushal else ["secops"],
-            "isSuperAdmin": is_kushal,
+            "organization": "External / Unassigned",
+            "primaryPersona": "executive",
+            "allowedPersonas": ["executive"],
+            "isSuperAdmin": False,
         }
 
     def _send_resend_email(self, to_email: str, code: str) -> tuple[bool, Optional[str]]:
@@ -551,7 +550,7 @@ def require_auth(allowed_personas: Optional[List[str]] = None):
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            from flask import request, jsonify, current_app
+            from flask import request, jsonify, current_app, g
 
             # In automated pytest environment, permit test execution with injected mock operator
             is_testing = (
@@ -568,7 +567,7 @@ def require_auth(allowed_personas: Optional[List[str]] = None):
             user = auth_service.validate_session(token)
             if not user:
                 return jsonify({
-                    "error": "Authentication required. Please log in with Supabase to proceed.",
+                    "error": "Authentication required. Please sign in to proceed.",
                     "authenticated": False,
                 }), 401
 
@@ -584,6 +583,7 @@ def require_auth(allowed_personas: Optional[List[str]] = None):
                         "required_personas": allowed_personas,
                     }), 403
 
+            g.cloudpulse_user = user
             return fn(*args, **kwargs)
         return wrapper
     return decorator

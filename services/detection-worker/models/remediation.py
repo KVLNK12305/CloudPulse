@@ -12,6 +12,9 @@ class RemediationActionType(str, Enum):
     """
     DISABLE_PUBLIC_INGRESS = "DISABLE_PUBLIC_INGRESS"
     ISOLATE_WORKLOAD = "ISOLATE_WORKLOAD"
+    # Non-mutating recommendation (investigation, monitoring, optimization):
+    # approval is recorded for audit, but there is nothing to execute.
+    ADVISORY = "ADVISORY"
 
 
 class RemediationStatus(str, Enum):
