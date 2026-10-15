@@ -2,6 +2,19 @@
 
 > **Autonomous Azure FinOps & Threat Surface Triage Engine with Closed-Loop Controlled Remediation.**
 
+> [!NOTE]
+> **Status: Azure estate decommissioned (October 2026).** The academic case study is complete and all Azure
+> resources have been deleted to avoid ongoing cost. CloudPulse now runs as an **offline demo** by default:
+> `/health` reports `offline`, inventory/billing/metrics are unavailable, and remediation execution is disabled.
+> Detection, correlation and deterministic AI triage still work against seeded demo telemetry.
+>
+> | Variable | Default | Purpose |
+> |---|---|---|
+> | `AZURE_INTEGRATION_ENABLED` | `false` | Re-enable live Azure clients after re-provisioning (`terraform apply`). |
+> | `CLOUDPULSE_DEV_AUTH` | `false` | **Local only.** Enables passwordless operator login and the `123456` passcode. |
+>
+> Section 8 documents the live validation performed while the estate existed.
+
 ---
 
 ## 1. Problem: The Disconnect Between Cloud Security and FinOps
@@ -153,9 +166,9 @@ CloudPulse implements controlled, reversible infrastructure remediation:
 
 ---
 
-## 8. Proven Live E2E Validation
+## 8. Proven Live E2E Validation (historical)
 
-CloudPulse has been proven end-to-end against live Azure infrastructure under subscription `90b900ea-4273-4b40-a343-091aecfe2911`:
+While the estate was provisioned, CloudPulse was proven end-to-end against live Azure infrastructure under subscription `90b900ea-4273-4b40-a343-091aecfe2911`:
 
 * **Finding ID**: `F-UPE-2D981ABC2B12` (Critical public SSH exposure on `cloudpulse-e2e-vm`)
 * **Incident ID**: `INC-RC-95E60E379A`
@@ -196,6 +209,12 @@ CloudPulse has been proven end-to-end against live Azure infrastructure under su
   * `Microsoft.Network/networkSecurityGroups/securityRules/write`
   * `Microsoft.Network/networkSecurityGroups/securityRules/delete`
 * **Prohibited Roles**: `Owner`, `Contributor`, `User Access Administrator` are strictly forbidden.
+* **Operator API access**: Ingestion (`/detect/*`), AI triage, approvals, status changes and remediation require a
+  signed-in SecOps operator. Approvals are attributed to the authenticated identity, not a client-supplied name.
+  Emails outside the operator roster sign in as read-only observers.
+* **Approval typing**: Only `CONTAINMENT` recommendations backed by matching evidence become executable
+  (`DISABLE_PUBLIC_INGRESS` / `ISOLATE_WORKLOAD`); investigation, monitoring and optimization actions are recorded as
+  `ADVISORY` and can never mutate Azure.
 
 ---
 
