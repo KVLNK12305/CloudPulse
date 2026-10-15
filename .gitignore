@@ -53,3 +53,7 @@ dist-ssr
 *.sln
 *.sw?
 
+
+# Terraform plan files embed variable values (including secrets) in plain text
+**/tfplan
+**/*.tfplan
