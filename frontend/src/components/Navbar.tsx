@@ -9,6 +9,7 @@ import {
   DollarSign,
   Key,
   Lock,
+  LogOut,
   Plus,
   RefreshCw,
   Shield,
@@ -22,7 +23,6 @@ import {
   TabType,
   TenantScope,
 } from '../types';
-import { OPERATOR_TEAM } from '../services/personaConfig';
 
 interface NavbarProps {
   activeTab: TabType;
@@ -43,10 +43,10 @@ interface NavbarProps {
   activeTenant: TenantScope;
   availableTenants: TenantScope[];
   onTenantChange: (t: TenantScope) => void;
-  onOpenConnectTenant: () => void;
+  onOpenConnectTenant?: () => void;
   activeOperator: OperatorProfile;
-  availableOperators?: OperatorProfile[];
-  onOperatorChange?: (op: OperatorProfile) => void;
+  isAuthenticated: boolean;
+  onSignOut?: () => void;
   onOpenAuthModal?: () => void;
   onUpdateOperatorName?: (name: string) => void;
   onNavigateToLanding?: () => void;
@@ -105,8 +105,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onTenantChange,
   onOpenConnectTenant,
   activeOperator,
-  availableOperators = OPERATOR_TEAM,
-  onOperatorChange,
+  isAuthenticated,
+  onSignOut,
   onOpenAuthModal,
   onNavigateToLanding,
 }) => {
@@ -141,6 +141,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const isOffline = health?.azure_integration ? !health.azure_integration.enabled : false;
   const isDegraded = health?.database?.degraded;
   const isConnected = health?.database?.connected;
 
@@ -219,7 +220,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {tenantDropdownOpen && (
             <div className="dropdown-menu scope-dropdown">
-              <div className="dropdown-header">Active Cloud Subscriptions</div>
+              <div className="dropdown-header">{isOffline ? 'Cloud Scope' : 'Active Cloud Subscriptions'}</div>
               {availableTenants.map(t => (
                 <div
                   key={t.id}
@@ -243,20 +244,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               ))}
 
-              <div className="dropdown-divider" />
-
-              <div
-                className="dropdown-item connect-action"
-                onClick={() => {
-                  setTenantDropdownOpen(false);
-                  onOpenConnectTenant();
-                }}
-              >
-                <Plus size={13} color="var(--accent-sky)" />
-                <span style={{ fontWeight: 700, color: 'var(--accent-sky)', fontSize: '0.74rem' }}>
-                  + Connect Cloud Tenant
-                </span>
-              </div>
+              {onOpenConnectTenant && (
+                <>
+                  <div className="dropdown-divider" />
+                  <div
+                    className="dropdown-item connect-action"
+                    onClick={() => {
+                      setTenantDropdownOpen(false);
+                      onOpenConnectTenant();
+                    }}
+                  >
+                    <Plus size={13} color="var(--accent-sky)" />
+                    <span style={{ fontWeight: 700, color: 'var(--accent-sky)', fontSize: '0.74rem' }}>
+                      + Connect Cloud Tenant
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -323,7 +327,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Unified Telemetry Stream Capsule */}
         <div
           className="telemetry-capsule"
-          title={`Telemetry Stream: ${autoRefresh ? 'Active (every 15s)' : 'Paused'} | Storage: ${storageLabel}`}
+          title={`Telemetry Stream: ${autoRefresh ? 'Polling every 15s' : 'Paused'}${isOffline ? ' | Azure integration offline' : ''} | Storage: ${storageLabel}`}
         >
           <button
             className="telemetry-live-btn"
@@ -333,11 +337,11 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span
               className={`status-dot ${autoRefresh ? 'pulse' : ''}`}
               style={{
-                backgroundColor: autoRefresh ? '#38d9a9' : '#f6ad55',
-                boxShadow: autoRefresh ? '0 0 6px #38d9a9' : 'none',
+                backgroundColor: !autoRefresh ? '#f6ad55' : isOffline ? '#a0aec0' : '#38d9a9',
+                boxShadow: autoRefresh && !isOffline ? '0 0 6px #38d9a9' : 'none',
               }}
             />
-            <span className="telemetry-state-text">{autoRefresh ? 'LIVE' : 'PAUSED'}</span>
+            <span className="telemetry-state-text">{!autoRefresh ? 'PAUSED' : isOffline ? 'OFFLINE' : 'LIVE'}</span>
             <span className="telemetry-rate-badge">{autoRefresh ? '15s' : 'OFF'}</span>
           </button>
 
@@ -479,65 +483,15 @@ export const Navbar: React.FC<NavbarProps> = ({
                 ) : (
                   <>
                     <Lock size={10} />
-                    <span>Role-restricted operator. Cross-domain elevation requires SecOps.</span>
+                    <span>
+                      {isAuthenticated
+                        ? 'Role-restricted operator. Cross-domain elevation requires SecOps.'
+                        : 'Not signed in: read-only. Sign in to triage, approve or remediate.'}
+                    </span>
                   </>
                 )}
               </div>
 
-              {/* Team Members Switcher */}
-              <div className="dropdown-section-title">Team Operators (Switch User)</div>
-              {availableOperators.map(op => {
-                const isCurrent = op.id === activeOperator.id;
-                return (
-                  <div
-                    key={op.id}
-                    className={`dropdown-item ${isCurrent ? 'active' : ''}`}
-                    onClick={() => {
-                      onOperatorChange?.(op);
-                    }}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px' }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div
-                        className="operator-avatar"
-                        style={{
-                          width: 22,
-                          height: 22,
-                          fontSize: '0.60rem',
-                          background: op.isSuperAdmin
-                            ? 'linear-gradient(135deg, #f6ad55, #fc8181)'
-                            : 'linear-gradient(135deg, #63b3ed, #9f7aea)',
-                        }}
-                      >
-                        {op.initials}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 700, fontSize: '0.74rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span>{op.name}</span>
-                          {op.isSuperAdmin && (
-                            <span
-                              style={{
-                                fontSize: '0.52rem',
-                                fontFamily: 'var(--font-mono)',
-                                color: '#f6ad55',
-                                fontWeight: 800,
-                              }}
-                            >
-                              ★ FULL ACCESS
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontSize: '0.62rem', color: 'var(--text-tertiary)' }}>
-                          {op.role}
-                        </div>
-                      </div>
-                    </div>
-                    {isCurrent && <Check size={12} color="var(--accent-teal)" />}
-                  </div>
-                );
-              })}
-
-              <div className="dropdown-divider" />
 
               {/* Perspective (POV) Selector */}
               <div className="dropdown-section-title">
@@ -574,7 +528,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     title={
                       isAllowed
                         ? `Switch perspective to ${conf.label}`
-                        : `Restricted: Only SecOps Commander (K V L N Kushal) has full-access elevation to switch into all roles.`
+                        : 'Restricted: this perspective is not assigned to your operator profile.'
                     }
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -627,28 +581,43 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div className="dropdown-divider" />
 
               {/* Quick Actions */}
-              <div
-                className="dropdown-item connect-action"
-                onClick={() => {
-                  setUserMenuOpen(false);
-                  onOpenConnectTenant();
-                }}
-              >
-                <Plus size={12} color="var(--accent-sky)" />
-                <span style={{ fontWeight: 700, color: 'var(--accent-sky)', fontSize: '0.74rem' }}>
-                  Connect Cloud Tenant…
-                </span>
-              </div>
-              <div
-                className="dropdown-item"
-                onClick={() => {
-                  setUserMenuOpen(false);
-                  onOpenAuthModal?.();
-                }}
-              >
-                <Key size={12} color="var(--accent-sky)" />
-                <span style={{ fontSize: '0.74rem' }}>Operator Login / Verify OTP…</span>
-              </div>
+              {onOpenConnectTenant && (
+                <div
+                  className="dropdown-item connect-action"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    onOpenConnectTenant();
+                  }}
+                >
+                  <Plus size={12} color="var(--accent-sky)" />
+                  <span style={{ fontWeight: 700, color: 'var(--accent-sky)', fontSize: '0.74rem' }}>
+                    Connect Cloud Tenant…
+                  </span>
+                </div>
+              )}
+              {isAuthenticated ? (
+                <div
+                  className="dropdown-item"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    onSignOut?.();
+                  }}
+                >
+                  <LogOut size={12} color="var(--accent-rose)" />
+                  <span style={{ fontSize: '0.74rem' }}>Sign Out</span>
+                </div>
+              ) : (
+                <div
+                  className="dropdown-item"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    onOpenAuthModal?.();
+                  }}
+                >
+                  <Key size={12} color="var(--accent-sky)" />
+                  <span style={{ fontSize: '0.74rem' }}>Sign In / Verify OTP…</span>
+                </div>
+              )}
               <div
                 className="dropdown-item"
                 onClick={() => {

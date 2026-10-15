@@ -13,7 +13,7 @@ import { ResourceDrawer } from './components/ResourceDrawer';
 import { ResourcesTab } from './components/ResourcesTab';
 import { ToastContainer } from './components/ToastContainer';
 import { LandingPage } from './components/landing/LandingPage';
-import { OPERATOR_TEAM, PERSONA_CONFIGS } from './services/personaConfig';
+import { GUEST_OPERATOR, PERSONA_CONFIGS } from './services/personaConfig';
 import { api } from './services/api';
 import {
   CostSummary,
@@ -28,30 +28,28 @@ import {
   ToastMessage,
 } from './types';
 
-const defaultTenants: TenantScope[] = [
-  {
-    id: 'tenant-demo',
-    name: 'CloudPulse Demo Sandbox',
-    subscriptionId: 'sub-6fa109-sandbox',
-    environment: 'sandbox',
-    region: 'eastus',
-    isDemo: true,
-  },
-  {
-    id: 'tenant-prod',
-    name: 'Acme Corp Production',
-    subscriptionId: 'c9b3e102-45a8-4b71-923f-110022334455',
-    environment: 'production',
-    region: 'eastus',
-  },
-  {
-    id: 'tenant-staging',
-    name: 'Global QA & Staging',
-    subscriptionId: '8fa32100-3321-410a-8abc-ff0011223344',
-    environment: 'staging',
-    region: 'westeurope',
-  },
-];
+const OFFLINE_TENANT: TenantScope = {
+  id: 'tenant-offline',
+  name: 'Offline Demo (Azure decommissioned)',
+  subscriptionId: 'no live subscription',
+  environment: 'offline',
+  region: '—',
+  isDemo: true,
+};
+
+function tenantFromHealth(health: HealthStatus | null): TenantScope {
+  const azure = health?.azure_integration;
+  if (azure?.enabled && azure.subscription_id) {
+    return {
+      id: `tenant-${azure.subscription_id}`,
+      name: 'CloudPulse Azure Subscription',
+      subscriptionId: azure.subscription_id,
+      environment: 'production',
+      region: '—',
+    };
+  }
+  return OFFLINE_TENANT;
+}
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
@@ -73,13 +71,13 @@ export const App: React.FC = () => {
 
   // Multi-user & Enterprise scope state
   const [activePersona, setActivePersona] = useState<Persona>('secops');
-  const [availableTenants, setAvailableTenants] = useState<TenantScope[]>(defaultTenants);
-  const [activeTenant, setActiveTenant] = useState<TenantScope>(defaultTenants[0]);
+  const [connectedTenants, setConnectedTenants] = useState<TenantScope[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
   const [connectTenantModalOpen, setConnectTenantModalOpen] = useState<boolean>(false);
   const [showEvaluatorBanner, setShowEvaluatorBanner] = useState<boolean>(true);
 
-  const [availableOperators] = useState<OperatorProfile[]>(OPERATOR_TEAM);
-  const [activeOperator, setActiveOperator] = useState<OperatorProfile>(OPERATOR_TEAM[0]);
+  const [activeOperator, setActiveOperator] = useState<OperatorProfile>(GUEST_OPERATOR);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   // Navigation view mode: 'landing' (pitch-ready landing page) vs 'console' (live dashboard)
   const [viewMode, setViewMode] = useState<'landing' | 'console'>(() => {
     if (typeof window !== 'undefined') {
@@ -134,36 +132,36 @@ export const App: React.FC = () => {
     []
   );
 
-  const handleOperatorChange = useCallback(
-    (newOp: OperatorProfile) => {
-      setActiveOperator(newOp);
-      if (newOp.isSuperAdmin) {
-        showToast(
-          'success',
-          `${newOp.name} Active (Full Access)`,
-          'SecOps super-admin elevation granted: Unrestricted permissions to audit and assume any role across the estate.'
-        );
-      } else {
-        setActivePersona(newOp.primaryPersona);
-        const cfg = PERSONA_CONFIGS[newOp.primaryPersona];
-        showToast(
-          'info',
-          `${newOp.name} Active`,
-          `Assigned domain: ${newOp.role}. Switched to ${cfg.label} perspective.`
-        );
-      }
+  const handleAuthenticated = useCallback(
+    (user: OperatorProfile) => {
+      setActiveOperator(user);
+      setIsAuthenticated(true);
+      setActivePersona(user.primaryPersona);
+      showToast(
+        'success',
+        `Authenticated: ${user.name}`,
+        `Signed in as ${user.role}.${user.isSuperAdmin ? ' Full Access Super-Admin privileges unlocked.' : ''}`
+      );
     },
     [showToast]
   );
 
+  const handleSignOut = useCallback(async () => {
+    const token = localStorage.getItem('cloudpulse_auth_token') || undefined;
+    await api.logout(token);
+    localStorage.removeItem('cloudpulse_auth_token');
+    localStorage.removeItem('cloudpulse_auth_user');
+    setActiveOperator(GUEST_OPERATOR);
+    setIsAuthenticated(false);
+    showToast('info', 'Signed Out', 'Now viewing as a read-only guest.');
+  }, [showToast]);
+
   const handlePersonaChange = useCallback(
     (newPersona: Persona) => {
       if (activeOperator.isSuperAdmin || activeOperator.allowedPersonas.includes(newPersona)) {
+        // Switching perspective never changes who is signed in
         setActivePersona(newPersona);
         const cfg = PERSONA_CONFIGS[newPersona];
-        if (!activeOperator.isSuperAdmin) {
-          setActiveOperator(cfg.operator);
-        }
         showToast(
           'info',
           activeOperator.isSuperAdmin
@@ -175,7 +173,7 @@ export const App: React.FC = () => {
         showToast(
           'warning',
           'Role Restricted',
-          `Only SecOps Commander (K V L N Kushal) has full-access elevation to switch into all roles. Operating as ${activeOperator.name} (${activeOperator.role}).`
+          `This perspective is not assigned to ${activeOperator.name} (${activeOperator.role}).`
         );
       }
     },
@@ -217,8 +215,8 @@ export const App: React.FC = () => {
     // Incidents
     if (incRes.status === 'fulfilled') {
       setIncidents(incRes.value);
-      if (!selectedIncidentId && incRes.value.length > 0) {
-        setSelectedIncidentId(incRes.value[0].incident_id);
+      if (incRes.value.length > 0) {
+        setSelectedIncidentId(prev => prev ?? incRes.value[0].incident_id);
       }
     } else {
       errors.push(incRes.reason?.message || 'Incidents API unreachable');
@@ -247,28 +245,34 @@ export const App: React.FC = () => {
 
     setApiErrors(errors);
     setIsRefreshing(false);
-  }, [selectedIncidentId]);
+  }, []);
 
-  // Initial load & session restoration
+  // Initial load
   useEffect(() => {
     loadData();
+  }, [loadData]);
 
-    // Check for saved auth session
+  // Session restoration (once)
+  useEffect(() => {
     const token = localStorage.getItem('cloudpulse_auth_token');
     if (token) {
       api.fetchSession(token).then(res => {
         if (res.authenticated && res.user) {
           setActiveOperator(res.user);
+          setIsAuthenticated(true);
           setActivePersona(res.user.primaryPersona);
           showToast(
             'success',
             `Session Active: ${res.user.name}`,
             `Operating as ${res.user.role}${res.user.isSuperAdmin ? ' (✦ Full Access)' : ''}`
           );
+        } else {
+          localStorage.removeItem('cloudpulse_auth_token');
+          localStorage.removeItem('cloudpulse_auth_user');
         }
       }).catch(() => {});
     }
-  }, [loadData, showToast]);
+  }, [showToast]);
 
   // Polling loop
   useEffect(() => {
@@ -284,14 +288,18 @@ export const App: React.FC = () => {
     setIsSeeding(true);
     showToast('info', 'Ingesting Demo Scenario', 'Simulating multi-vector breach telemetry...');
     try {
-      await api.seedDemoScenario();
+      const result = await api.seedDemoScenario();
       await loadData();
       setActiveTab('incidents');
-      showToast(
-        'success',
-        'Demo Scenario Ingested',
-        'Multi-vector breach and cost anomaly correlated and triaged.'
-      );
+      if (result.correlated) {
+        showToast('success', 'Demo Scenario Ingested', 'Multi-vector breach and cost anomaly correlated and triaged.');
+      } else {
+        showToast(
+          'warning',
+          'Demo Scenario Ingested',
+          'Findings were ingested, but the cost anomaly did not correlate with the security incident.'
+        );
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown seeding error';
       showToast('error', 'Demo Seeding Failed', msg);
@@ -307,8 +315,8 @@ export const App: React.FC = () => {
   };
 
   const handleTenantConnected = (newTenant: TenantScope) => {
-    setAvailableTenants(prev => [newTenant, ...prev]);
-    setActiveTenant(newTenant);
+    setConnectedTenants(prev => [newTenant, ...prev]);
+    setSelectedTenantId(newTenant.id);
     showToast(
       'success',
       'Tenant Connected',
@@ -318,29 +326,27 @@ export const App: React.FC = () => {
 
   const openIncidentCount = incidents.filter(i => i.status === 'OPEN').length;
 
+  const azureEnabled = health?.azure_integration?.enabled ?? false;
+  const baseTenant = tenantFromHealth(health);
+  const availableTenants = [...connectedTenants, baseTenant];
+  const activeTenant = availableTenants.find(t => t.id === selectedTenantId) || baseTenant;
+  const selectedIncident = incidents.find(i => i.incident_id === selectedIncidentId) || incidents[0] || null;
+
   if (viewMode === 'landing') {
     return (
       <>
         <LandingPage
           onLaunchConsole={handleLaunchConsole}
           onOpenAuth={() => setAuthModalOpen(true)}
-          isAuthenticated={Boolean(activeOperator?.email)}
-          operatorName={activeOperator?.name}
+          isAuthenticated={isAuthenticated}
+          operatorName={isAuthenticated ? activeOperator.name : undefined}
         />
 
         {/* OTP Authentication Modal */}
         <AuthModal
           isOpen={authModalOpen}
           onClose={() => setAuthModalOpen(false)}
-          onAuthenticated={user => {
-            setActiveOperator(user);
-            setActivePersona(user.primaryPersona);
-            showToast(
-              'success',
-              `Authenticated: ${user.name}`,
-              `Signed in as ${user.role}. ${user.isSuperAdmin ? 'Full Access Super-Admin privileges unlocked.' : ''}`
-            );
-          }}
+          onAuthenticated={handleAuthenticated}
           activeOperator={activeOperator}
         />
 
@@ -363,7 +369,7 @@ export const App: React.FC = () => {
         resourceCount={resources.length}
         openIncidentCount={openIncidentCount}
         health={health}
-        subscriptionId={estateOverview?.subscription_id}
+        subscriptionId={estateOverview?.subscription_id ?? undefined}
         isSeeding={isSeeding}
         onSeedDemo={handleSeedDemo}
         isRefreshing={isRefreshing}
@@ -375,13 +381,13 @@ export const App: React.FC = () => {
         activeTenant={activeTenant}
         availableTenants={availableTenants}
         onTenantChange={t => {
-          setActiveTenant(t);
+          setSelectedTenantId(t.id);
           showToast('info', 'Tenant Scope Switched', `Active scope: ${t.name}`);
         }}
-        onOpenConnectTenant={() => setConnectTenantModalOpen(true)}
+        onOpenConnectTenant={azureEnabled ? () => setConnectTenantModalOpen(true) : undefined}
         activeOperator={activeOperator}
-        availableOperators={availableOperators}
-        onOperatorChange={handleOperatorChange}
+        isAuthenticated={isAuthenticated}
+        onSignOut={handleSignOut}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         onNavigateToLanding={handleNavigateToLanding}
       />
@@ -395,6 +401,7 @@ export const App: React.FC = () => {
           resourceCount={resources.length}
           costTotal={estateOverview?.costs?.total_cost ?? undefined}
           costCurrency={estateOverview?.costs?.currency}
+          azureEnabled={azureEnabled}
           onPersonaChange={handlePersonaChange}
           onNavigateTab={tab => setActiveTab(tab)}
           onOpenExportBrief={() => {
@@ -432,19 +439,23 @@ export const App: React.FC = () => {
               <div style={{ fontSize: '0.80rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
                 <strong>CloudPulse Autonomous SecOps & FinOps Platform:</strong> Built for security commanders,
                 cloud economists, and platform teams. Currently inspecting{' '}
-                <strong style={{ color: 'var(--accent-sky)' }}>{activeTenant.name}</strong>. Switch perspective
-                using the role selector in the top bar, or click <strong>Connect Cloud</strong> to onboard your own Azure tenant.
+                <strong style={{ color: 'var(--accent-sky)' }}>{activeTenant.name}</strong>.{' '}
+                {azureEnabled
+                  ? <>Switch perspective using the role selector in the top bar, or click <strong>Connect Cloud</strong> to onboard your own Azure tenant.</>
+                  : <>The Azure estate has been decommissioned, so inventory, billing and metrics are unavailable and remediation is disabled. Sign in as SecOps and use <strong>Seed Demo</strong> to explore detection, correlation and AI triage offline.</>}
               </div>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button
-                className="btn btn-secondary"
-                style={{ fontSize: '0.72rem', padding: '4px 10px' }}
-                onClick={() => setConnectTenantModalOpen(true)}
-              >
-                + Connect Your Azure Tenant
-              </button>
+              {azureEnabled && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: '0.72rem', padding: '4px 10px' }}
+                  onClick={() => setConnectTenantModalOpen(true)}
+                >
+                  + Connect Your Azure Tenant
+                </button>
+              )}
               <button
                 onClick={() => setShowEvaluatorBanner(false)}
                 style={{
@@ -497,6 +508,7 @@ export const App: React.FC = () => {
         {activeTab === 'finops' && (
           <FinopsTab
             costSummary={costSummary}
+            azureEnabled={azureEnabled}
             incidents={incidents}
             onNavigateTab={tab => setActiveTab(tab)}
             onSelectIncident={id => {
@@ -517,6 +529,7 @@ export const App: React.FC = () => {
             onShowToast={showToast}
             activeOperator={activeOperator}
             activePersona={activePersona}
+            remediationEnabled={health?.azure_integration?.remediation_enabled ?? false}
           />
         )}
       </main>
@@ -540,10 +553,10 @@ export const App: React.FC = () => {
       />
 
       {/* 1-Click Executive CISO Export Brief Modal */}
-      {cisoExportBriefOpen && incidents.length > 0 && (
+      {cisoExportBriefOpen && selectedIncident && (
         <ExportBriefModal
           isOpen={cisoExportBriefOpen}
-          incident={incidents[0]}
+          incident={selectedIncident}
           onClose={() => setCisoExportBriefOpen(false)}
           onShowToast={showToast}
         />
@@ -553,15 +566,7 @@ export const App: React.FC = () => {
       <AuthModal
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
-        onAuthenticated={(user) => {
-          setActiveOperator(user);
-          setActivePersona(user.primaryPersona);
-          showToast(
-            'success',
-            `Authenticated: ${user.name}`,
-            `Signed in as ${user.role}. ${user.isSuperAdmin ? 'Full Access Super-Admin privileges unlocked.' : ''}`
-          );
-        }}
+        onAuthenticated={handleAuthenticated}
         activeOperator={activeOperator}
       />
 

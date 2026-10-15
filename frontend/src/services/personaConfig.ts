@@ -75,6 +75,49 @@ export const OPERATOR_TEAM: OperatorProfile[] = [
   },
 ];
 
+// Spend envelope used by the FinOps gauges. Usage is only computed when billing
+// is in the same currency; mixing currencies would produce a meaningless percentage.
+export const FINOPS_BUDGET = { amount: 500, currency: 'USD', windowDays: 14 } as const;
+
+export interface BudgetUsage {
+  pct: number | null;
+  comparable: boolean;
+  note: string;
+}
+
+export function computeBudgetUsage(cost: number | null | undefined, currency?: string | null): BudgetUsage {
+  const budgetLabel = `${FINOPS_BUDGET.currency} ${FINOPS_BUDGET.amount.toFixed(2)}`;
+  if (cost === null || cost === undefined) {
+    return { pct: null, comparable: false, note: 'No closed billing data in window' };
+  }
+  const cur = (currency || FINOPS_BUDGET.currency).toUpperCase();
+  if (cur !== FINOPS_BUDGET.currency) {
+    return {
+      pct: null,
+      comparable: false,
+      note: `Billing is in ${cur}; budget is set in ${FINOPS_BUDGET.currency}`,
+    };
+  }
+  return {
+    pct: Math.min(Math.round((cost / FINOPS_BUDGET.amount) * 100), 100),
+    comparable: true,
+    note: `of ${budgetLabel} ${FINOPS_BUDGET.windowDays}-day window`,
+  };
+}
+
+// Signed-out viewer: may browse every perspective, but the backend rejects all mutations.
+export const GUEST_OPERATOR: OperatorProfile = {
+  id: 'op-guest',
+  name: 'Guest Viewer',
+  initials: 'GV',
+  role: 'Read-only (not signed in)',
+  email: '',
+  organization: 'Unauthenticated session',
+  primaryPersona: 'secops',
+  allowedPersonas: ['secops', 'executive', 'platform', 'finops'],
+  isSuperAdmin: false,
+};
+
 export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
   secops: {
     id: 'secops',
@@ -157,7 +200,7 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
       {
         label: 'Budget Window Trajectory',
         value: 'Nominal Burn',
-        subtext: 'Tracking within $500.00 14-day cycle',
+        subtext: 'Awaiting closed billing data',
         status: 'optimal',
       },
     ],
@@ -172,7 +215,7 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     accentBorder: 'rgba(99, 179, 237, 0.28)',
     tagline: 'ARM Inventory, Network Isolation & Telemetry Health',
     directive:
-      'Infrastructure Resiliency & ARM State Fidelity — Monitoring 3 active workloads, subnet routing, and runtime metric collection health.',
+      'Infrastructure Resiliency & ARM State Fidelity — Monitoring discovered workloads, subnet routing, and runtime metric collection health.',
     primaryTab: 'resources',
     operator: OPERATOR_TEAM[1],
     focusHighlights: {
@@ -187,21 +230,21 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
     keyInsights: [
       {
         label: 'Discovered ARM Workloads',
-        value: '3 Resources',
-        subtext: 'VM, Network Interface, NSG',
+        value: '— Resources',
+        subtext: 'Awaiting Azure Resource Graph inventory',
         status: 'info',
       },
       {
         label: 'Subnet Blast Radius',
-        value: 'Network Isolated',
-        subtext: 'vnet-cloudpulse database tier protected',
+        value: 'No Active Target',
+        subtext: 'No open incident on a network workload',
         status: 'optimal',
       },
       {
         label: 'Runtime Metric Probes',
-        value: 'Healthy (15s)',
-        subtext: 'Azure Monitor metric pipeline live',
-        status: 'optimal',
+        value: 'Unknown',
+        subtext: 'Awaiting Azure Monitor status',
+        status: 'info',
       },
     ],
   },
@@ -251,6 +294,7 @@ export const PERSONA_CONFIGS: Record<Persona, PersonaConfig> = {
 };
 
 export interface PersonaTelemetryContext {
+  azureEnabled?: boolean;
   incidents?: Incident[];
   resourceCount?: number;
   costTotal?: number;
@@ -281,6 +325,7 @@ export function getPersonaConfig(
   const costTotal = ctx.costTotal ?? 0;
   const currency = ctx.costCurrency || 'USD';
   const resourceCount = ctx.resourceCount ?? 0;
+  const azureEnabled = ctx.azureEnabled ?? false;
 
   const formatCurr = (val: number, cur = currency) =>
     new Intl.NumberFormat('en-US', {
@@ -289,8 +334,9 @@ export function getPersonaConfig(
       maximumFractionDigits: 2,
     }).format(val);
 
-  const budgetLimit = 500;
-  const budgetPct = Math.min(Math.round((costTotal / budgetLimit) * 100), 100);
+  const budget = computeBudgetUsage(ctx.costTotal, ctx.costCurrency);
+  const budgetValue = budget.pct === null ? 'N/A' : `${budget.pct}% Burned`;
+  const budgetSubtext = budget.comparable ? `${formatCurr(costTotal, currency)} ${budget.note}` : budget.note;
 
   // 1. SECOPS
   if (persona === 'secops') {
@@ -456,8 +502,8 @@ export function getPersonaConfig(
           },
           {
             label: 'Budget Window Trajectory',
-            value: `${budgetPct}% Burned`,
-            subtext: `${formatCurr(costTotal, currency)} of $500.00 14-day cycle`,
+            value: budgetValue,
+            subtext: budgetSubtext,
             status: 'optimal',
           },
         ],
@@ -497,9 +543,9 @@ export function getPersonaConfig(
           },
           {
             label: 'Budget Window Trajectory',
-            value: `${budgetPct}% Burned`,
-            subtext: `${formatCurr(costTotal, currency)} of $500.00 14-day cycle`,
-            status: budgetPct > 80 ? 'warning' : 'optimal',
+            value: budgetValue,
+            subtext: budgetSubtext,
+            status: (budget.pct ?? 0) > 80 ? 'warning' : 'optimal',
           },
         ],
       };
@@ -545,8 +591,8 @@ export function getPersonaConfig(
         },
         {
           label: 'Budget Window Trajectory',
-          value: `${budgetPct}% Burned`,
-          subtext: `${formatCurr(costTotal, currency)} of $500.00 14-day cycle`,
+          value: budgetValue,
+          subtext: budgetSubtext,
           status: 'info',
         },
       ],
@@ -560,8 +606,8 @@ export function getPersonaConfig(
     return {
       ...base,
       badge: 'INFRASTRUCTURE & TOPOLOGY',
-      directive: `Infrastructure Resiliency & ARM State Fidelity — Monitoring ${resourceCount || 3
-        } active workloads, subnet routing, and runtime metric collection health.`,
+      directive: `Infrastructure Resiliency & ARM State Fidelity — Monitoring ${ctx.resourceCount ?? 'discovered'
+        } workload${resourceCount === 1 ? '' : 's'}, subnet routing, and runtime metric collection health.`,
       focusHighlights: {
         heroMetricTitle: 'Active Cloud Workloads',
         heroMetricReason:
@@ -575,21 +621,21 @@ export function getPersonaConfig(
       keyInsights: [
         {
           label: 'Discovered ARM Workloads',
-          value: `${resourceCount || 3} Resources`,
-          subtext: 'VM, Network Interface, NSG',
+          value: ctx.resourceCount === undefined ? '— Resources' : `${resourceCount} Resource${resourceCount === 1 ? '' : 's'}`,
+          subtext: azureEnabled ? 'Azure Resource Graph inventory' : 'Azure integration offline',
           status: 'info',
         },
         {
           label: 'Subnet Blast Radius',
-          value: isTargeted ? `${targetName} Targeted` : 'Network Isolated',
-          subtext: 'vnet-cloudpulse database tier protected',
+          value: isTargeted ? `${targetName} Targeted` : 'No Active Target',
+          subtext: isTargeted ? 'Open incident on this workload' : 'No open incident on a network workload',
           status: 'optimal',
         },
         {
           label: 'Runtime Metric Probes',
-          value: 'Healthy (15s)',
-          subtext: 'Azure Monitor metric pipeline live',
-          status: 'optimal',
+          value: azureEnabled ? 'Configured' : 'Offline',
+          subtext: azureEnabled ? 'Azure Monitor client configured' : 'Azure integration decommissioned',
+          status: azureEnabled ? 'optimal' : 'warning',
         },
       ],
     };

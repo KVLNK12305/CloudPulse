@@ -88,7 +88,9 @@ export const KpiGrid: React.FC<KpiGridProps> = ({
     aiTagText = 'Azure OpenAI (Live)';
     aiTagColor = '#34d399';
     aiTagBg = 'rgba(52, 211, 153, 0.15)';
-    aiSubtext = 'Live inference via gpt-4o';
+    aiSubtext = `Live inference via ${
+      triagedIncidents.find(i => i.ai_analysis?.model_identifier)?.ai_analysis?.model_identifier || 'Azure OpenAI'
+    }`;
   } else if (liveTriaged > 0 && fallbackTriaged > 0) {
     aiTagText = 'Hybrid (Live + Fallback)';
     aiTagColor = '#38bdf8';

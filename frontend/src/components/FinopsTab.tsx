@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '../services/api';
 import { CostSummary, Incident, Persona, TabType } from '../types';
-import { getPersonaConfig } from '../services/personaConfig';
+import { FINOPS_BUDGET, computeBudgetUsage, getPersonaConfig } from '../services/personaConfig';
 import { InstrumentGauge } from './InstrumentGauge';
 import { SegmentedMeter } from './SegmentedMeter';
 
@@ -17,6 +17,7 @@ interface FinopsTabProps {
   onNavigateTab: (tab: TabType) => void;
   onSelectIncident: (id: string) => void;
   activePersona?: Persona;
+  azureEnabled?: boolean;
 }
 
 export const FinopsTab: React.FC<FinopsTabProps> = ({
@@ -25,6 +26,7 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
   onNavigateTab,
   onSelectIncident,
   activePersona = 'finops',
+  azureEnabled = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -77,10 +79,13 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
   const topCorr = correlatedIncidents.length > 0 ? correlatedIncidents[0] : null;
   const drivers = costSummary?.top_cost_drivers || [];
 
-  // Budget Gauge calculations (Simulated monthly burn target: $500 baseline)
-  const budgetLimit = 500;
+  // Budget gauge: only meaningful when billing currency matches the budget currency
   const currentActual = totalCost ?? 0;
-  const budgetPct = Math.min(Math.round((currentActual / budgetLimit) * 100), 100);
+  const budget = computeBudgetUsage(hasCostData ? totalCost : null, currency);
+  const budgetPct = budget.pct ?? 0;
+  const budgetSentence = budget.comparable
+    ? `Standard ${FINOPS_BUDGET.windowDays}-day allocation is ${formatCurrency(FINOPS_BUDGET.amount, FINOPS_BUDGET.currency)}; actual burn is ${formatCurrency(currentActual, currency)} (${budgetPct}%).`
+    : `Budget utilization unavailable: ${budget.note.toLowerCase()}.`;
 
   return (
     <div
@@ -103,9 +108,18 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
       >
         <AlertTriangle size={18} color="#f6ad55" style={{ flexShrink: 0 }} />
         <div>
-          <strong>Azure Cost Management Notice:</strong> Cost telemetry reflects closed daily billing cycles.
-          Due to Azure billing latency, consumption has a 24–48h reconciliation window. Today's in-flight consumption is
-          not reported until closed.
+          {azureEnabled ? (
+            <>
+              <strong>Azure Cost Management Notice:</strong> Cost telemetry reflects closed daily billing cycles.
+              Due to Azure billing latency, consumption has a 24–48h reconciliation window. Today's in-flight consumption is
+              not reported until closed.
+            </>
+          ) : (
+            <>
+              <strong>Azure Cost Management Offline:</strong> The Azure estate has been decommissioned, so no billing data
+              is queried. Correlated overruns below come only from seeded demo incidents.
+            </>
+          )}
         </div>
       </div>
 
@@ -113,9 +127,10 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
       {(() => {
         const pCfg = getPersonaConfig(activePersona, {
           incidents,
-          costTotal: currentActual,
+          costTotal: hasCostData && totalCost != null ? totalCost : undefined,
           costCurrency: currency,
           topCorrIncident: topCorr,
+          azureEnabled,
         });
         return (
           <div
@@ -173,7 +188,7 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
                 <>
                   {activePersona === 'finops' && (
                     <>
-                      <strong>Unit Economics Lens: </strong> Workload variance indicates a +{topCorr.cost_impact?.percentage_increase.toFixed(0)}% deviation on <code>{topCorr.resource?.name || 'workload'}</code>. Standard 14-day allocation is ${budgetLimit}; actual current burn is {formatCurrency(currentActual, currency)} ({budgetPct}%). Unchecked egress threatens budget envelope.
+                      <strong>Unit Economics Lens: </strong> Workload variance indicates a +{topCorr.cost_impact?.percentage_increase.toFixed(0)}% deviation on <code>{topCorr.resource?.name || 'workload'}</code>. {budgetSentence} Unchecked egress threatens budget envelope.
                     </>
                   )}
                   {activePersona === 'secops' && (
@@ -196,7 +211,7 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
                 <>
                   {activePersona === 'finops' && (
                     <>
-                      <strong>Unit Economics Lens: </strong> Cloud spend is operating within nominal parameters. Standard 14-day allocation is ${budgetLimit}; actual burn is {formatCurrency(currentActual, currency)} ({budgetPct}%). Zero statistical cost outliers or threat overruns detected.
+                      <strong>Unit Economics Lens: </strong> Cloud spend is operating within nominal parameters. {budgetSentence} Zero statistical cost outliers or threat overruns detected.
                     </>
                   )}
                   {activePersona === 'secops' && (
@@ -280,9 +295,13 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
           value={budgetPct}
           minValue={0}
           maxValue={125}
-          displayValue={`${budgetPct}%`}
+          displayValue={budget.pct === null ? 'N/A' : `${budgetPct}%`}
           unit="% BUDGET BURN"
-          sublabel={`${formatCurrency(currentActual, currency)} of ${formatCurrency(budgetLimit, currency)} Window`}
+          sublabel={
+            budget.comparable
+              ? `${formatCurrency(currentActual, currency)} of ${formatCurrency(FINOPS_BUDGET.amount, FINOPS_BUDGET.currency)} Window`
+              : budget.note
+          }
           comparisonText="14-Day Cycle"
           scaleTicks={[
             { value: 0, label: '0' },
@@ -293,8 +312,8 @@ export const FinopsTab: React.FC<FinopsTabProps> = ({
             { value: 125, label: '125' },
           ]}
           dangerThreshold={100}
-          statusLabel={budgetPct >= 100 ? 'OVERRUN' : budgetPct >= 75 ? 'ELEVATED' : 'OPTIMAL'}
-          statusColor={budgetPct >= 100 ? '#fc8181' : budgetPct >= 75 ? '#f6ad55' : '#38d9a9'}
+          statusLabel={budget.pct === null ? 'NO DATA' : budgetPct >= 100 ? 'OVERRUN' : budgetPct >= 75 ? 'ELEVATED' : 'OPTIMAL'}
+          statusColor={budget.pct === null ? '#a0aec0' : budgetPct >= 100 ? '#fc8181' : budgetPct >= 75 ? '#f6ad55' : '#38d9a9'}
         />
 
         {/* Gauge 2: Cross-Vector Anomaly Surge */}

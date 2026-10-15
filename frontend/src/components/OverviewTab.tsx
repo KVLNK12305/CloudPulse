@@ -51,6 +51,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   const byCat = estateOverview?.costs?.by_category || {};
   const catKeys = Object.keys(byCat);
   const totalCost = estateOverview?.costs?.total_cost || 0;
+  const hasCostData = Boolean(estateOverview?.costs?.has_data) && estateOverview?.costs?.total_cost != null;
   const currency = estateOverview?.costs?.currency || 'USD';
 
   const correlatedIncidents = incidents.filter(i => !!i.cost_impact);
@@ -74,9 +75,10 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         const pCfg = getPersonaConfig(activePersona, {
           incidents,
           resourceCount,
-          costTotal: totalCost,
+          costTotal: hasCostData ? totalCost : undefined,
           costCurrency: currency,
           topCorrIncident: topCorr,
+          azureEnabled: estateOverview?.azure_integration?.enabled ?? false,
         });
         return (
           <div

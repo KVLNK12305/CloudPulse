@@ -27,7 +27,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onAuthenticated,
 }) => {
   const [step, setStep] = useState<'email' | 'otp'>('email');
-  const [email, setEmail] = useState<string>('kls2edmentre@gmail.com');
+  const [email, setEmail] = useState<string>('');
+  // Passwordless sign-in and dev passcodes exist only when the backend enables them
+  const [devAuth, setDevAuth] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    api.fetchAuthStatus().then(st => setDevAuth(Boolean(st.dev_auth_enabled))).catch(() => setDevAuth(false));
+  }, [isOpen]);
   const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -114,7 +121,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (error) {
         const msg = error.message.toLowerCase();
         const isRateLimit = msg.includes('rate limit') || msg.includes('security purposes') || msg.includes('over_email_send_rate_limit');
-        if (isRateLimit) {
+        if (isRateLimit && devAuth) {
           // Supabase free tier rate limit encountered: transition smoothly to OTP step with dev code
           setEmail(toSend);
           setStep('otp');
@@ -154,8 +161,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       let token: string | null = null;
       let user: OperatorProfile | null = null;
 
+      const isDevCode = devAuth && (fullCode === '123456' || fullCode === '000000');
+
       // 1. If not dev code, try Supabase Auth direct OTP verification
-      if (fullCode !== '123456' && fullCode !== '000000') {
+      if (!isDevCode) {
         try {
           const { data, error } = await supabase.auth.verifyOtp({
             email,
@@ -180,7 +189,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
 
       // 3. Fallback: direct operator login if using dev code
-      if (!token && (fullCode === '123456' || fullCode === '000000')) {
+      if (!token && isDevCode) {
         const opRes = await api.operatorLogin(email);
         if (opRes.success && opRes.token) {
           token = opRes.token;
@@ -190,30 +199,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       if (token) {
         // Validate / sync session with backend
+        // The backend session is the source of truth for role and privileges
         const sessionRes = await api.fetchSession(token);
-        const matched = OPERATOR_TEAM.find(op => op.email.toLowerCase() === email.toLowerCase());
-        const fallbackUser: OperatorProfile = matched || {
-          id: 'op-' + email.split('@')[0],
-          name: email.split('@')[0].replace('.', ' ').toUpperCase(),
-          initials: email.substring(0, 2).toUpperCase(),
-          role: 'Cloud Security Operator',
-          email: email,
-          organization: 'Enterprise Cyber Defense',
-          primaryPersona: 'secops' as const,
-          allowedPersonas: ['secops' as const],
-          isSuperAdmin: email.toLowerCase().includes('kushal'),
-        };
-
-        const resolvedUser: OperatorProfile = (sessionRes?.authenticated && sessionRes.user)
+        const resolvedUser: OperatorProfile | null = (sessionRes?.authenticated && sessionRes.user)
           ? sessionRes.user
-          : (user || fallbackUser);
+          : user;
+        if (!resolvedUser) {
+          setErrorMessage('Signed in with Supabase, but the CloudPulse backend could not validate the session.');
+          return;
+        }
 
         localStorage.setItem('cloudpulse_auth_token', token);
         localStorage.setItem('cloudpulse_auth_user', JSON.stringify(resolvedUser));
         onAuthenticated(resolvedUser, token);
         onClose();
       } else {
-        setErrorMessage('Verification failed. You can enter passcode 123456 for instant dev sign-in.');
+        setErrorMessage('Verification failed. Check the code or request a new one.');
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Verification failed';
@@ -530,6 +531,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           >
                             {op.isSuperAdmin ? 'SuperAdmin' : op.primaryPersona.toUpperCase()}
                           </span>
+                          {devAuth && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -554,6 +556,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           >
                             ⚡ Sign In
                           </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -562,6 +565,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {devAuth && (
                 <button
                   className="btn btn-accent"
                   onClick={() => handleInstantLogin()}
@@ -593,6 +597,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     </>
                   )}
                 </button>
+                )}
 
                 <button
                   className="btn btn-secondary"
@@ -691,6 +696,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 ))}
               </div>
 
+              {devAuth && (
               <div style={{ textAlign: 'center', marginBottom: '16px' }}>
                 <button
                   type="button"
@@ -714,6 +720,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   ⚡ Auto-Fill Dev Passcode (123456)
                 </button>
               </div>
+              )}
 
               <button
                 className="btn btn-accent"

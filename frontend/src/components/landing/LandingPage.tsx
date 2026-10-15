@@ -596,7 +596,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div style={{ display: 'flex', gap: '20px', fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: '#64748b' }}>
             <span>SHA-256 VERIFIED</span>
             <span>REST API v1</span>
-            <span>SOC2 TYPE II READY</span>
+            <span>HUMAN-APPROVED REMEDIATION</span>
           </div>
         </div>
       </footer>

@@ -23,6 +23,7 @@ interface PersonaFocusBarProps {
   onPersonaChange: (p: Persona) => void;
   onNavigateTab: (tab: TabType) => void;
   onOpenExportBrief?: () => void;
+  azureEnabled?: boolean;
 }
 
 export const PersonaFocusBar: React.FC<PersonaFocusBarProps> = ({
@@ -35,12 +36,14 @@ export const PersonaFocusBar: React.FC<PersonaFocusBarProps> = ({
   onPersonaChange,
   onNavigateTab,
   onOpenExportBrief,
+  azureEnabled = false,
 }) => {
   const config = getPersonaConfig(activePersona, {
     incidents,
     resourceCount,
     costTotal,
     costCurrency,
+    azureEnabled,
   });
 
   const handleActionClick = () => {
@@ -156,6 +159,7 @@ export const PersonaFocusBar: React.FC<PersonaFocusBarProps> = ({
               resourceCount,
               costTotal,
               costCurrency,
+              azureEnabled,
             });
             const isCurrent = p === activePersona;
             const isAllowed = !activeOperator || activeOperator.isSuperAdmin || activeOperator.allowedPersonas.includes(p);

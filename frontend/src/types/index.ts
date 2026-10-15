@@ -63,6 +63,8 @@ export interface AIAnalysis {
 
 export interface ActionRemediationState {
   status: RemediationStatus;
+  action_type?: 'DISABLE_PUBLIC_INGRESS' | 'ISOLATE_WORKLOAD' | 'ADVISORY';
+  error_message?: string;
   approval?: {
     operator: string;
     notes?: string;
@@ -220,7 +222,8 @@ export interface CostSummary {
 }
 
 export interface EstateOverview {
-  subscription_id?: string;
+  subscription_id?: string | null;
+  azure_integration?: AzureIntegrationStatus;
   resources?: {
     total: number;
     by_type: Record<string, number>;
@@ -239,12 +242,27 @@ export interface EstateOverview {
   };
 }
 
+export interface AzureIntegrationStatus {
+  enabled: boolean;
+  mode: 'live' | 'offline';
+  remediation_enabled: boolean;
+  subscription_id?: string | null;
+  message?: string | null;
+}
+
 export interface HealthStatus {
   status: string;
   database?: {
     connected?: boolean;
     degraded?: boolean;
     degradation_reason?: string;
+  };
+  azure_integration?: AzureIntegrationStatus;
+  ai_provider?: {
+    provider?: string;
+    execution_mode?: string;
+    status?: string;
+    model_identifier?: string;
   };
   services?: Record<string, string>;
 }
@@ -264,7 +282,7 @@ export interface TenantScope {
   id: string;
   name: string;
   subscriptionId: string;
-  environment: 'production' | 'staging' | 'sandbox';
+  environment: 'production' | 'staging' | 'sandbox' | 'offline';
   region: string;
   isDemo?: boolean;
 }

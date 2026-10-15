@@ -34,6 +34,21 @@ function getAuthHeader(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+async function postSeed(path: string, body: unknown): Promise<Response> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    if (res.status === 401) throw new Error('Sign in as a SecOps operator to seed demo telemetry.');
+    if (res.status === 403) throw new Error('Seeding demo telemetry requires the SecOps role.');
+    throw new Error(err.message || err.error || `${path} failed (${res.status})`);
+  }
+  return res;
+}
+
 export const api = {
   async fetchHealth(): Promise<HealthStatus> {
     const res = await fetch('/health');
@@ -165,14 +180,16 @@ export const api = {
     return data.incident;
   },
 
-  async seedDemoScenario(): Promise<void> {
+  async seedDemoScenario(): Promise<{ correlated: boolean; triaged: boolean }> {
+    // Cost anomalies are only evaluated for closed billing days (yesterday or earlier),
+    // and the correlator rejects a cost date that precedes the security event. Place the
+    // egress event on the same closed day so the pair correlates.
+    const evalDate = new Date(Date.now() - 86400000).toISOString().substring(0, 10);
+    const soaTime = new Date(`${evalDate}T20:00:00Z`);
     const victimResId = "/subscriptions/90b900ea-4273-4b40-a343-091aecfe2911/resourceGroups/cloudpulse-rg/providers/Microsoft.Compute/virtualMachines/vm-worker-01";
     
     // 1. Resource Creation
-    await fetch('/detect/resource-creation', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await postSeed('/detect/resource-creation', {
         events: [{
           TimeGenerated: new Date(Date.now() - 3600000 * 4).toISOString(),
           EventDataId: "evt-rc-demo-01",
@@ -187,14 +204,10 @@ export const api = {
           CallerIpAddress: "198.51.100.10",
           Properties_d: JSON.stringify({ statusCode: "Created", activitySubstatusValue: "Created" })
         }]
-      })
     });
 
     // 2. Unexpected Public Exposure
-    await fetch('/detect/unexpected-public-exposure', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await postSeed('/detect/unexpected-public-exposure', {
         events: [{
           TimeGenerated: new Date(Date.now() - 3600000 * 3).toISOString(),
           EventDataId: "evt-upe-demo-01",
@@ -270,16 +283,12 @@ export const api = {
             }
           }
         }
-      })
     });
 
     // 3. Suspicious Outbound Egress
-    await fetch('/detect/suspicious-outbound', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await postSeed('/detect/suspicious-outbound', {
         events: [{
-          timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
+          timestamp: soaTime.toISOString(),
           resource_id: victimResId,
           destination_ip: "198.51.100.77",
           destination_port: 443,
@@ -297,15 +306,10 @@ export const api = {
             known_destination_ips: ["168.63.129.16"]
           }
         }
-      })
     });
 
     // 4. Cost Anomaly
-    const evalDate = new Date(Date.now() - 86400000).toISOString().substring(0, 10);
-    await fetch('/detect/cost-anomaly', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    await postSeed('/detect/cost-anomaly', {
         evaluation_date: evalDate,
         observations: [{
           resource_id: victimResId,
@@ -323,20 +327,17 @@ export const api = {
           confidence: 0.90,
           currency: "USD"
         }]
-      })
     });
 
-    // 5. Trigger AI Triage for newly formed incident
-    const activeRes = await fetch('/api/incidents');
+    // 5. Trigger AI Triage on the incident formed for the seeded workload
+    const activeRes = await fetch('/api/incidents?limit=100');
     const activeData = await activeRes.json();
-    if (activeData.incidents && activeData.incidents.length > 0) {
-      const incId = activeData.incidents[0].incident_id;
-      await fetch(`/api/incidents/${incId}/ai-triage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force_refresh: true }),
-      });
-    }
+    const seeded: Incident | undefined = (activeData.incidents || []).find(
+      (i: Incident) => (i.resource?.id || '').toLowerCase() === victimResId.toLowerCase()
+    );
+    if (!seeded) return { correlated: false, triaged: false };
+    await postSeed(`/api/incidents/${seeded.incident_id}/ai-triage`, { force_refresh: true });
+    return { correlated: Boolean(seeded.cost_impact), triaged: true };
   },
 
   // --- Authentication & OTP API ---
@@ -409,15 +410,15 @@ export const api = {
   async configureResendKey(key: string): Promise<{ success: boolean; message?: string; error?: string }> {
     const res = await fetch('/api/auth/configure', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       body: JSON.stringify({ resend_api_key: key }),
     });
     return res.json();
   },
 
-  async fetchAuthStatus(): Promise<{ has_resend_key: boolean; roster: OperatorProfile[] }> {
+  async fetchAuthStatus(): Promise<{ has_resend_key: boolean; dev_auth_enabled: boolean }> {
     const res = await fetch('/api/auth/status');
-    if (!res.ok) return { has_resend_key: false, roster: [] };
+    if (!res.ok) return { has_resend_key: false, dev_auth_enabled: false };
     return res.json();
   }
 };

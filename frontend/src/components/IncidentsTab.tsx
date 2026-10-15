@@ -37,6 +37,7 @@ interface IncidentsTabProps {
   ) => void;
   activeOperator?: OperatorProfile;
   activePersona?: Persona;
+  remediationEnabled?: boolean;
 }
 
 export const IncidentsTab: React.FC<IncidentsTabProps> = ({
@@ -45,8 +46,8 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
   onSelectIncident,
   onIncidentUpdated,
   onShowToast,
-  activeOperator,
   activePersona = 'secops',
+  remediationEnabled = false,
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sevFilter, setSevFilter] = useState<string>('');
@@ -184,8 +185,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
         selectedIncident.incident_id,
         modalActionId,
         modalTargetStatus,
-        notes,
-        activeOperator?.name || 'secops-operator'
+        notes
       );
       onIncidentUpdated(updated);
       setModalOpen(false);
@@ -230,6 +230,16 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
     ai && (ai.status === 'UNAVAILABLE' || ai.execution_mode === 'UNAVAILABLE');
   const isLive = isTriaged && (ai.execution_mode === 'LIVE' || ai.provider_status === 'LIVE');
   const isFallback = isTriaged && !isLive;
+
+  // Attribution comes from the recorded approvals, never from whoever is viewing
+  const approvers = Array.from(
+    new Set(
+      Object.values(selectedIncident?.remediation?.actions || {})
+        .filter(r => r.approval?.operator && r.status !== 'REJECTED')
+        .map(r => r.approval!.operator)
+    )
+  );
+  const approverLabel = approvers.length > 0 ? approvers.join(', ') : 'no recorded approver';
 
   return (
     <div className="main-workspace">
@@ -518,6 +528,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
               const pCfg = getPersonaConfig(activePersona, {
                 incidents,
                 topCorrIncident: selectedIncident?.cost_impact ? selectedIncident : null,
+                azureEnabled: remediationEnabled,
               });
               const isResolved = selectedIncident.status === 'RESOLVED' || selectedIncident.status === 'CLOSED';
               const costImpact = selectedIncident.cost_impact;
@@ -604,7 +615,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                     {activePersona === 'secops' && (
                       isResolved ? (
                         <>
-                          <strong>Post-Incident Assurance: </strong> Threat vector neutralized. Workload <code>{rName}</code> is contained, egress terminated, and perimeter integrity verified by operator <code>{activeOperator?.name || 'SecOps'}</code>.
+                          <strong>Post-Incident Assurance: </strong> Threat vector neutralized. Workload <code>{rName}</code> is contained, egress terminated, and remediation approved by <code>{approverLabel}</code>.
                         </>
                       ) : (
                         <>
@@ -641,11 +652,11 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                     {activePersona === 'executive' && (
                       isResolved ? (
                         <>
-                          <strong>Audit & Compliance Closed: </strong> Remediation audited and logged in forensic record. Regulatory posture (SOC 2 / CIS) restored and signed off by <code>{activeOperator?.name || 'Lead Operator'}</code>.
+                          <strong>Audit & Compliance Closed: </strong> Remediation audited and logged in forensic record. Approved by <code>{approverLabel}</code>.
                         </>
                       ) : (
                         <>
-                          <strong>Compliance Exposure: </strong> Incident <code>{selectedIncident.incident_id}</code> flagged against cloud security baselines. Remediation actions require authorized operator approval ({activeOperator?.name || 'Lead Operator'}).
+                          <strong>Compliance Exposure: </strong> Incident <code>{selectedIncident.incident_id}</code> flagged against cloud security baselines. Remediation actions require approval by an authorized SecOps operator.
                         </>
                       )
                     )}
@@ -875,6 +886,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                         const isApproved = status === 'APPROVED';
                         const isExecuting = executingActionId === act.id;
                         const isRejected = status === 'REJECTED';
+                        const isAdvisory = rem?.action_type === 'ADVISORY';
 
                         return (
                           <div key={act.id} className="action-item">
@@ -923,7 +935,7 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                                   }}
                                 >
                                   <Check size={13} />
-                                  <span>Azure State Live-Verified:</span>
+                                  <span>Azure state verified by read-back:</span>
                                   <code>{rem.verification.verified_state || 'COMPLIANT'}</code>
                                 </div>
                               )}
@@ -932,6 +944,22 @@ export const IncidentsTab: React.FC<IncidentsTabProps> = ({
                             <div className="action-controls">
                               {isVerified ? (
                                 <span className="badge-status VERIFIED">VERIFIED</span>
+                              ) : isApproved && isAdvisory ? (
+                                <span
+                                  className="badge-status APPROVED"
+                                  title="Advisory action: approval is recorded, there is no automated Azure change to execute."
+                                >
+                                  ADVISORY · NO AUTO-EXECUTION
+                                </span>
+                              ) : isApproved && !remediationEnabled ? (
+                                <button
+                                  className="btn btn-accent"
+                                  disabled
+                                  title="Azure integration is disabled (estate decommissioned); remediation cannot be executed."
+                                >
+                                  <Zap size={12} />
+                                  <span>Execution Unavailable (Azure Offline)</span>
+                                </button>
                               ) : isApproved ? (
                                 <button
                                   className="btn btn-accent"
