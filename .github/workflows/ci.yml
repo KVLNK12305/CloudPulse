@@ -1,6 +1,7 @@
 name: CloudPulse CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -30,7 +31,9 @@ jobs:
     name: Build & Push Image
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    # The Azure Container Registry was decommissioned; only push when triggered manually
+    # after the registry has been re-provisioned.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
 
