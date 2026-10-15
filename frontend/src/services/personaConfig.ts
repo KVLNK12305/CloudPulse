@@ -340,6 +340,40 @@ export function getPersonaConfig(
 
   // 1. SECOPS
   if (persona === 'secops') {
+    // With no incidents and no live telemetry, "nothing detected" means "nothing observed"
+    if (openIncidents.length === 0 && resolvedIncidents.length === 0 && !azureEnabled) {
+      return {
+        ...base,
+        badge: 'TELEMETRY OFFLINE',
+        directive:
+          'No live telemetry — the Azure estate is decommissioned, so perimeter state is unobserved. Seed demo telemetry to exercise detection and triage.',
+        focusHighlights: {
+          ...base.focusHighlights,
+          heroMetricReason: 'No incidents recorded · Azure telemetry offline',
+          quickFilterLabel: 'Telemetry Offline',
+        },
+        keyInsights: [
+          {
+            label: 'Active Attack Vectors',
+            value: '0 Recorded',
+            subtext: 'No Activity Log or flow telemetry ingested',
+            status: 'info',
+          },
+          {
+            label: 'Exfiltration Target',
+            value: 'Unobserved',
+            subtext: 'Network flow telemetry offline',
+            status: 'info',
+          },
+          {
+            label: 'Containment Gate',
+            value: 'Disabled',
+            subtext: 'Remediation requires live Azure integration',
+            status: 'warning',
+          },
+        ],
+      };
+    }
     if (openIncidents.length === 0 && resolvedIncidents.length === 0) {
       return {
         ...base,

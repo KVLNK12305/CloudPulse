@@ -337,11 +337,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span
               className={`status-dot ${autoRefresh ? 'pulse' : ''}`}
               style={{
-                backgroundColor: !autoRefresh ? '#f6ad55' : isOffline ? '#a0aec0' : '#38d9a9',
-                boxShadow: autoRefresh && !isOffline ? '0 0 6px #38d9a9' : 'none',
+                backgroundColor: !autoRefresh ? '#f6ad55' : !health || isOffline ? '#a0aec0' : '#38d9a9',
+                boxShadow: autoRefresh && health && !isOffline ? '0 0 6px #38d9a9' : 'none',
               }}
             />
-            <span className="telemetry-state-text">{!autoRefresh ? 'PAUSED' : isOffline ? 'OFFLINE' : 'LIVE'}</span>
+            <span className="telemetry-state-text">
+              {!autoRefresh ? 'PAUSED' : !health ? 'CONNECTING' : isOffline ? 'OFFLINE' : 'LIVE'}
+            </span>
             <span className="telemetry-rate-badge">{autoRefresh ? '15s' : 'OFF'}</span>
           </button>
 

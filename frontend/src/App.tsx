@@ -229,18 +229,24 @@ export const App: React.FC = () => {
       errors.push(ovRes.reason?.message || 'Estate Overview API unreachable');
     }
 
+    // When Azure integration is intentionally offline, inventory/billing 503s are expected, not errors
+    const azureOffline =
+      healthRes.status === 'fulfilled' && healthRes.value.azure_integration?.enabled === false;
+
     // Resources
     if (resRes.status === 'fulfilled') {
       setResources(resRes.value);
     } else {
-      errors.push(resRes.reason?.message || 'Resource Graph API unreachable');
+      setResources([]);
+      if (!azureOffline) errors.push(resRes.reason?.message || 'Resource Graph API unreachable');
     }
 
     // Cost
     if (costRes.status === 'fulfilled') {
       setCostSummary(costRes.value);
     } else {
-      errors.push(costRes.reason?.message || 'Azure Cost Management API unreachable');
+      setCostSummary(null);
+      if (!azureOffline) errors.push(costRes.reason?.message || 'Azure Cost Management API unreachable');
     }
 
     setApiErrors(errors);
@@ -434,7 +440,7 @@ export const App: React.FC = () => {
               flexWrap: 'wrap',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 0', minWidth: 0 }}>
               <Sparkles size={18} color="var(--accent-sky)" style={{ flexShrink: 0 }} />
               <div style={{ fontSize: '0.80rem', color: 'var(--text-primary)', lineHeight: 1.5 }}>
                 <strong>CloudPulse Autonomous SecOps & FinOps Platform:</strong> Built for security commanders,
